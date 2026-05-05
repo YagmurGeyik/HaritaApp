@@ -1,19 +1,22 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using HaritaApp.API.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Controller desteğini servislere ekliyoruz ve GeoJSON desteğini aktif ediyoruz
+// 1. Controller desteği ve GeoJSON
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(new NetTopologySuite.IO.Converters.GeoJsonConverterFactory());
     });
 
-// OpenAPI yapılandırması (Swagger/Dokümantasyon için)
+// OpenAPI yapılandırması
 builder.Services.AddOpenApi();
 
-// 2. React Frontend'in API'ye erişebilmesi için CORS politikasını ekliyoruz
+// 2. CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll",
@@ -25,29 +28,47 @@ builder.Services.AddCors(options =>
         });
 });
 
-// 3. PostgreSQL ve PostGIS bağlantısı
+// 3. PostgreSQL + PostGIS
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
-        o => o.UseNetTopologySuite() // PostGIS için kritik ayar
+        o => o.UseNetTopologySuite()
     ));
+
+// 4. JWT Authentication
+var jwtKey = builder.Configuration["Jwt:Key"]!;
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// HTTP request pipeline yapılandırması
+// HTTP pipeline
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
 app.UseHttpsRedirection();
-
-// CORS politikasını aktifleştiriyoruz (UseAuthorization'dan önce olmalı)
 app.UseCors("AllowAll");
 
+// Authentication → Authorization sırası önemli!
+app.UseAuthentication();
 app.UseAuthorization();
 
-// 4. Controller endpoint'lerini ayağa kaldırıyoruz
 app.MapControllers();
 
-app.Run();
+app.Run();

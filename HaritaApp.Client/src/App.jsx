@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import MapComponent from './components/MapComponent';
 import GeometryList from './components/GeometryList';
 import { geometryService } from './services/api';
-import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2 } from 'lucide-react';
+import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon } from 'lucide-react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import LoginPage from './pages/LoginPage';
 import './App.css';
 
 // Modern Modal Bileşeni (Giriş Desteği ile)
@@ -56,13 +58,15 @@ const CustomModal = ({ isOpen, title, message, type, defaultValue, onConfirm, on
   );
 };
 
-function App() {
+function AppContent() {
   const [drawType, setDrawType] = useState(null);
   const [geometries, setGeometries] = useState([]);
   const [zoomTo, setZoomTo] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [baseLayer, setBaseLayer] = useState(localStorage.getItem('baseLayer') || 'osm');
   const [isEditMode, setIsEditMode] = useState(false);
+  
+  const { user, logout } = useAuth();
 
   // Modal State
   const [modal, setModal] = useState({
@@ -90,6 +94,7 @@ function App() {
   };
 
   const fetchGeometries = async () => {
+    if (!user) return;
     try {
       const data = await geometryService.getAll();
       setGeometries(data);
@@ -100,11 +105,24 @@ function App() {
 
   useEffect(() => {
     fetchGeometries();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     localStorage.setItem('baseLayer', baseLayer);
   }, [baseLayer]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      // Eğer sidebar açıksa ve tıklanan yer sidebar veya menü butonu değilse kapat
+      if (isSidebarOpen && 
+          !event.target.closest('.sidebar-wrapper') && 
+          !event.target.closest('.menu-toggle-btn')) {
+        setIsSidebarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSidebarOpen]);
 
   const handleDelete = async (id) => {
     showModal(
@@ -123,6 +141,10 @@ function App() {
       }
     );
   };
+
+  if (!user) {
+      return <LoginPage />;
+  }
 
   return (
     <div className="app-container">
@@ -155,17 +177,33 @@ function App() {
         </div>
 
         <div className="navbar-buttons">
-          <button className={`nav-btn ${drawType === 'Point' ? 'active' : ''}`} onClick={() => setDrawType('Point')}>
+          <button 
+            className={`nav-btn ${drawType === 'Point' ? 'active' : ''}`} 
+            onClick={() => setDrawType('Point')}
+            data-tooltip="Nokta Çiz"
+          >
             <MapPin size={18} /> Point
           </button>
-          <button className={`nav-btn ${drawType === 'LineString' ? 'active' : ''}`} onClick={() => setDrawType('LineString')}>
+          <button 
+            className={`nav-btn ${drawType === 'LineString' ? 'active' : ''}`} 
+            onClick={() => setDrawType('LineString')}
+            data-tooltip="Çizgi Çiz"
+          >
             <Share2 size={18} /> Line
           </button>
-          <button className={`nav-btn ${drawType === 'Polygon' ? 'active' : ''}`} onClick={() => setDrawType('Polygon')}>
+          <button 
+            className={`nav-btn ${drawType === 'Polygon' ? 'active' : ''}`} 
+            onClick={() => setDrawType('Polygon')}
+            data-tooltip="Poligon Çiz"
+          >
             <Pentagon size={18} /> Polygon
           </button>
           {drawType && (
-            <button className="nav-btn cancel-btn" onClick={() => setDrawType(null)}>
+            <button 
+              className="nav-btn cancel-btn" 
+              onClick={() => setDrawType(null)}
+              data-tooltip="Çizimi İptal Et"
+            >
               <XCircle size={18} /> İptal
             </button>
           )}
@@ -175,12 +213,22 @@ function App() {
               setIsEditMode(!isEditMode);
               setDrawType(null); // Edit modda çizim iptal edilsin
             }}
-            title="Geometri Düzenleme Modu"
+            data-tooltip={isEditMode ? 'Düzenlemeyi Kapat' : 'Düzenlemeyi Aç'}
           >
-            <Edit2 size={18} /> {isEditMode ? 'Düzenleme: Açık' : 'Düzenle'}
+            <Edit2 size={18} />
           </button>
+          
+          <div className="user-info">
+            <div className="username-display">
+               <UserIcon size={16} /> {user.username}
+            </div>
+            <button className="logout-btn" onClick={logout} title="Çıkış Yap">
+                <LogOut size={18} />
+            </button>
+          </div>
         </div>
       </nav>
+
 
       <div className="main-layout">
         <div className={`sidebar-wrapper ${isSidebarOpen ? 'open' : ''}`}>
@@ -207,6 +255,14 @@ function App() {
       </div>
     </div>
   );
+}
+
+function App() {
+    return (
+        <AuthProvider>
+            <AppContent />
+        </AuthProvider>
+    );
 }
 
 export default App;

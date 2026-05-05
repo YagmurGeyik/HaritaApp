@@ -5,19 +5,23 @@ namespace HaritaApp.API.Models
 {
     public class Geometries
     {
-        // Id, int, Primary Key[cite: 1]
+        // Id, int, Primary Key
         public int Id { get; set; }
 
-        // Name, text, Kullanıcı tarafından verilen isim[cite: 1]
-        public string Name { get; set; }
+        // Name, text, Kullanıcı tarafından verilen isim
+        public string Name { get; set; } = string.Empty;
 
-        // GeometryType, text, Point/LineString/Polygon[cite: 1]
-        public string GeometryType { get; set; }
+        // GeometryType, text, Point/LineString/Polygon
+        public string GeometryType { get; set; } = string.Empty;
 
-        // Geoloc, geometry, Çizilen geometrinin kendisi[cite: 1]
-        public Geometry Geoloc { get; set; }
+        // Geoloc, geometry, Çizilen geometrinin kendisi
+        public Geometry Geoloc { get; set; } = null!;
 
-        // CreatedAt, timestamp, Oluşturulma zamanı[cite: 1]
+        // CreatedAt, timestamp, Oluşturulma zamanı
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        // UserId – hangi kullanıcının çizimi
+        public int UserId { get; set; }
+        public AppUser? User { get; set; }
     }
 }

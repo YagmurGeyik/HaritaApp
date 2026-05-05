@@ -127,3 +127,13 @@ C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\obj\Debug\net
 C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\obj\Debug\net10.0\ref\HaritaApp.API.dll
 C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\NetTopologySuite.Features.dll
 C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\NetTopologySuite.IO.GeoJSON4STJ.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\obj\Debug\net10.0\HaritaApp.API.sourcelink.json
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\BCrypt.Net-Next.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\Microsoft.IdentityModel.Abstractions.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\Microsoft.IdentityModel.JsonWebTokens.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\Microsoft.IdentityModel.Logging.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\Microsoft.IdentityModel.Protocols.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\Microsoft.IdentityModel.Tokens.dll
+C:\Users\Yağmur Geyik\OneDrive\Masaüstü\HaritaApp\HaritaApp.API\bin\Debug\net10.0\System.IdentityModel.Tokens.Jwt.dll
