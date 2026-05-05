@@ -110,12 +110,12 @@
 .sidebar-wrapper {
   position: absolute;
   top: 0;
-  left: -350px; /* Başlangıçta gizli */
+  left: -350px; 
   width: 340px;
   height: 100%;
   z-index: 1500;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  pointer-events: none; /* Gizliyken tıklamaları engelle */
+  pointer-events: none;
 }
 
 .sidebar-wrapper.open {

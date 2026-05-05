@@ -16,14 +16,13 @@ namespace HaritaApp.API.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            // Geometries → AppUser ilişkisi (her geometri bir kullanıcıya aittir)
+            // Geometries → AppUser ilişkisi
             modelBuilder.Entity<Geometries>()
                 .HasOne(g => g.User)
                 .WithMany(u => u.Geometries)
                 .HasForeignKey(g => g.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // Username benzersiz olmalı
             modelBuilder.Entity<AppUser>()
                 .HasIndex(u => u.Username)
                 .IsUnique();

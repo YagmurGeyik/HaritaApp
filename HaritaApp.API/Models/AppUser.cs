@@ -9,8 +9,6 @@ namespace HaritaApp.API.Models
         public string PasswordHash { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-        // Navigation property
         public ICollection<Geometries> Geometries { get; set; } = new List<Geometries>();
     }
 }

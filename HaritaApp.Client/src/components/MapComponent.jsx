@@ -36,8 +36,6 @@ const MapComponent = ({ drawType, setDrawType, geometries, refreshData, zoomTo, 
 
   const [selectedFeature, setSelectedFeature] = useState(null);
   const [showDetail, setShowDetail] = useState(false);
-
-  // Feature'dan detay bilgisi hesapla
   const getFeatureInfo = (feature) => {
     if (!feature) return null;
     const geom = feature.getGeometry();
@@ -178,27 +176,22 @@ const MapComponent = ({ drawType, setDrawType, geometries, refreshData, zoomTo, 
   // Geometri Düzenleme Modu (Modify)
   useEffect(() => {
     if (!mapRef.current) return;
-
-    // Önceki modify/select etkileşimlerini kaldır
     if (selectRef.current) mapRef.current.removeInteraction(selectRef.current);
     if (modifyRef.current) mapRef.current.removeInteraction(modifyRef.current);
 
     if (isEditMode) {
-      // Select: Tıklanan feature'ı seç
       const select = new Select({ condition: click });
       selectRef.current = select;
       mapRef.current.addInteraction(select);
 
-      // Select olayını dinle - klon yerine orijinal feature'ı kullan
       select.on('select', (event) => {
         if (event.selected.length > 0) {
           const clonedFeature = event.selected[0];
           const id = clonedFeature.getId();
-          // vectorSource'dan orijinal feature'ı bul (name property'si burada)
+
           const originalFeature = vectorSourceRef.current.getFeatureById(id);
           if (originalFeature) {
             setSelectedFeature(originalFeature);
-            // Popup pozisyonunu feature'ın üzerine ayarla
             const geometry = originalFeature.getGeometry();
             let coordinate;
             if (geometry.getType() === 'Point') {
@@ -216,7 +209,6 @@ const MapComponent = ({ drawType, setDrawType, geometries, refreshData, zoomTo, 
       });
 
       // Modify: Tüm feature'ları doğrudan source üzerinden düzenle
-      // (select.getFeatures() yerine source kullanmak daha güvenilir)
       const modify = new Modify({ source: vectorSourceRef.current });
       modifyRef.current = modify;
       mapRef.current.addInteraction(modify);
@@ -243,7 +235,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, refreshData, zoomTo, 
             geoloc: updatedGeometry
           };
 
-          console.log("Güncellenen payload:", payload); // Debug için
+          console.log("Güncellenen payload:", payload);
 
           try {
             await geometryService.update(id, payload);

@@ -12,7 +12,6 @@ namespace HaritaApp.API.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // 1. Önce Users tablosunu oluştur
             migrationBuilder.CreateTable(
                 name: "Users",
                 columns: table => new
@@ -35,10 +34,8 @@ namespace HaritaApp.API.Migrations
                 column: "Username",
                 unique: true);
 
-            // 2. Mevcut anonim geometrileri temizle (UserId olmayan kayıtlar FK'yı ihlal eder)
             migrationBuilder.Sql("DELETE FROM \"Geometries\";");
 
-            // 3. UserId sütununu ekle
             migrationBuilder.AddColumn<int>(
                 name: "UserId",
                 table: "Geometries",
@@ -51,7 +48,6 @@ namespace HaritaApp.API.Migrations
                 table: "Geometries",
                 column: "UserId");
 
-            // 4. FK kısıtını ekle
             migrationBuilder.AddForeignKey(
                 name: "FK_Geometries_Users_UserId",
                 table: "Geometries",

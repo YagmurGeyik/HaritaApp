@@ -77,7 +77,6 @@ const GeometryList = ({ geometries, onDelete, onZoom }) => {
                 </div>
               </div>
 
-              {/* Genişleyen Detay Satırı */}
               {expandedId === geo.id && (
                 <div className="item-detail">
                   <div className="item-detail-row">

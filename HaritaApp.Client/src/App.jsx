@@ -211,7 +211,7 @@ function AppContent() {
             className={`nav-btn ${isEditMode ? 'active edit-active' : ''}`}
             onClick={() => {
               setIsEditMode(!isEditMode);
-              setDrawType(null); // Edit modda çizim iptal edilsin
+              setDrawType(null);
             }}
             data-tooltip={isEditMode ? 'Düzenlemeyi Kapat' : 'Düzenlemeyi Aç'}
           >

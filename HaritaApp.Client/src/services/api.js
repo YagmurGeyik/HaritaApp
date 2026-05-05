@@ -3,7 +3,6 @@ import axios from 'axios';
 const BASE_URL = 'http://localhost:5031/api';
 const API_URL = `${BASE_URL}/geometries`;
 
-// Axios interceptor to add token to requests
 axios.interceptors.request.use(
     (config) => {
         const user = JSON.parse(localStorage.getItem('user'));
@@ -17,11 +16,9 @@ axios.interceptors.request.use(
     }
 );
 
-// Response interceptor to handle 401 Unauthorized errors (token expired, etc.)
 axios.interceptors.response.use(
     (response) => response,
     (error) => {
-        // Eğer hata 401 ise VE bu bir auth (login/register) isteği DEĞİLSE sayfayı yenile
         const url = error.config?.url?.toLowerCase() || '';
         const isAuthRequest = url.includes('/auth/');
 
