@@ -10,5 +10,6 @@ namespace HaritaApp.API.Models
         public string Email { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public ICollection<Geometries> Geometries { get; set; } = new List<Geometries>();
+        public ICollection<Routes> Routes { get; set; } = new List<Routes>();
     }
 }

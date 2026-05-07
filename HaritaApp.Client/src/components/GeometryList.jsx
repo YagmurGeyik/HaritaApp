@@ -1,14 +1,86 @@
 import React, { useState } from 'react';
-import { Trash2, Navigation, Search, Info } from 'lucide-react';
+import { Trash2, Navigation, Search, Info, ChevronDown, ChevronUp, Map, Route as RouteIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { geometryService, routeService } from '../services/api';
 
-const GeometryList = ({ geometries, onDelete, onZoom }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, notify }) => {
+  const [searchGeometries, setSearchGeometries] = useState('');
+  const [searchRoutes, setSearchRoutes] = useState('');
   const [expandedId, setExpandedId] = useState(null);
+  const [sectionOpen, setSectionOpen] = useState({ geometries: false, routes: false });
+  const [currentPageGeometries, setCurrentPageGeometries] = useState(1);
+  const [currentPageRoutes, setCurrentPageRoutes] = useState(1);
+  const itemsPerPage = 5;
+
+  const handleSearchGeometries = (e) => {
+    setSearchGeometries(e.target.value);
+    setCurrentPageGeometries(1);
+  };
+
+  const handleSearchRoutes = (e) => {
+    setSearchRoutes(e.target.value);
+    setCurrentPageRoutes(1);
+  };
+
+  const toggleSection = (section) => {
+    setSectionOpen(prev => ({ ...prev, [section]: !prev[section] }));
+  };
 
   const filteredGeometries = geometries.filter(geo =>
-    geo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    geo.geometryType.toLowerCase().includes(searchTerm.toLowerCase())
+    geo.name.toLowerCase().includes(searchGeometries.toLowerCase())
   );
+
+  const filteredRoutes = routes.filter(route =>
+    route.name.toLowerCase().includes(searchRoutes.toLowerCase())
+  );
+
+  const totalPagesGeometries = Math.ceil(filteredGeometries.length / itemsPerPage);
+  const totalPagesRoutes = Math.ceil(filteredRoutes.length / itemsPerPage);
+
+  const paginatedGeometries = filteredGeometries.slice(
+    (currentPageGeometries - 1) * itemsPerPage,
+    currentPageGeometries * itemsPerPage
+  );
+
+  const paginatedRoutes = filteredRoutes.slice(
+    (currentPageRoutes - 1) * itemsPerPage,
+    currentPageRoutes * itemsPerPage
+  );
+
+  const handleDeleteGeometry = async (id) => {
+    notify(
+      "Silme Onayı",
+      "Bu geometriyi silmek istediğinize emin misiniz?",
+      "confirm",
+      async () => {
+        try {
+          await geometryService.delete(id);
+          if (refreshData) await refreshData();
+          notify("Başarılı", "Geometri başarıyla silindi.", "info");
+        } catch (error) {
+          console.error("Silme hatası:", error);
+          notify("Hata", "Silme işlemi başarısız oldu.", "info");
+        }
+      }
+    );
+  };
+
+  const handleDeleteRoute = async (id) => {
+    notify(
+      "Silme Onayı",
+      "Bu güzergahı silmek istediğinize emin misiniz?",
+      "confirm",
+      async () => {
+        try {
+          await routeService.delete(id);
+          if (refreshRoutes) await refreshRoutes();
+          notify("Başarılı", "Güzergah başarıyla silindi.", "info");
+        } catch (error) {
+          console.error("Silme hatası:", error);
+          notify("Hata", "Silme işlemi başarısız oldu.", "info");
+        }
+      }
+    );
+  };
 
   const typeIcon = (type) => {
     if (type === 'Point') return '📍';
@@ -17,85 +89,169 @@ const GeometryList = ({ geometries, onDelete, onZoom }) => {
     return '📌';
   };
 
+  const renderItem = (item, type, onDelete) => (
+    <div key={item.id} className="geometry-item-wrapper">
+      <div className="geometry-item">
+        <div className="item-info">
+          <div className="item-name">{typeIcon(item.geometryType)} {item.name}</div>
+          <div className="item-type">{item.geometryType}</div>
+        </div>
+        <div className="item-actions">
+          <button
+            className={`action-btn info-btn ${expandedId === item.id ? 'active' : ''}`}
+            onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+            title="Detay"
+          >
+            <Info size={15} />
+          </button>
+          <button
+            className="action-btn zoom-btn"
+            onClick={() => onZoom(item)}
+            title="Haritada Göster"
+          >
+            <Navigation size={15} />
+          </button>
+          <button
+            className="action-btn delete-btn-small"
+            onClick={() => onDelete(item.id)}
+            title="Sil"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      </div>
+      {expandedId === item.id && (
+        <div className="item-detail">
+          <div className="item-detail-row">
+            <span>ID</span><span>#{item.id}</span>
+          </div>
+          <div className="item-detail-row">
+            <span>Tarih</span>
+            <span>{new Date(item.createdAt).toLocaleDateString('tr-TR')}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="geometry-list-panel">
       <div className="panel-header">
-        <div>
-          <h2>Kayıtlı Geometriler</h2>
-          <span className="count-badge">{filteredGeometries.length} kayıt bulundu</span>
-        </div>
-      </div>
-
-      <div className="search-container">
-        <div className="search-input-wrapper">
-          <Search size={18} className="search-icon" />
-          <input
-            type="text"
-            placeholder="İsim veya tür ara..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-          />
-        </div>
+        <h2>Veri Katmanları</h2>
       </div>
 
       <div className="list-container">
-        {filteredGeometries.length === 0 ? (
-          <div className="empty-state">
-            {searchTerm ? "Sonuç bulunamadı." : "Henüz bir kayıt yok."}
+        {/* GEOMETRİLER BÖLÜMÜ */}
+        <div className="collapsible-section">
+          <div className="section-header" onClick={() => toggleSection('geometries')}>
+            <div className="section-title">
+              <span>Kayıtlı Geometriler</span>
+            </div>
+            <div className="section-chevron">
+              <span className="chevron-icon">{sectionOpen.geometries ? <ChevronDown size={18} /> : <ChevronDown size={18} style={{transform: 'rotate(-90deg)'}} />}</span>
+            </div>
           </div>
-        ) : (
-          filteredGeometries.map((geo) => (
-            <div key={geo.id} className="geometry-item-wrapper">
-              <div className="geometry-item">
-                <div className="item-info">
-                  <div className="item-name">{typeIcon(geo.geometryType)} {geo.name}</div>
-                  <div className="item-type">{geo.geometryType}</div>
-                </div>
-                <div className="item-actions">
-                  <button
-                    className={`action-btn info-btn ${expandedId === geo.id ? 'active' : ''}`}
-                    onClick={() => setExpandedId(expandedId === geo.id ? null : geo.id)}
-                    title="Detay"
-                  >
-                    <Info size={15} />
-                  </button>
-                  <button
-                    className="action-btn zoom-btn"
-                    onClick={() => onZoom(geo)}
-                    title="Haritada Göster"
-                  >
-                    <Navigation size={15} />
-                  </button>
-                  <button
-                    className="action-btn delete-btn-small"
-                    onClick={() => onDelete(geo.id)}
-                    title="Sil"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+          {sectionOpen.geometries && (
+            <div className="section-content">
+              <div className="search-container" style={{ padding: '0 0 1rem 0' }}>
+                <div className="search-input-wrapper">
+                  <Search size={18} className="search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Geometrilerde Ara..."
+                    value={searchGeometries}
+                    onChange={handleSearchGeometries}
+                    className="search-input"
+                  />
                 </div>
               </div>
-
-              {expandedId === geo.id && (
-                <div className="item-detail">
-                  <div className="item-detail-row">
-                    <span>ID</span><span>#{geo.id}</span>
-                  </div>
-                  <div className="item-detail-row">
-                    <span>Tip</span><span>{geo.geometryType}</span>
-                  </div>
-                  {geo.createdAt && (
-                    <div className="item-detail-row">
-                      <span>Tarih</span>
-                      <span>{new Date(geo.createdAt).toLocaleDateString('tr-TR')}</span>
+              {paginatedGeometries.length === 0 ? (
+                <div className="empty-state">Kayıt bulunamadı.</div>
+              ) : (
+                <>
+                  {paginatedGeometries.map(geo => renderItem(geo, 'geometry', handleDeleteGeometry))}
+                  {totalPagesGeometries > 1 && (
+                    <div className="pagination-container">
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageGeometries === 1} 
+                        onClick={() => setCurrentPageGeometries(prev => prev - 1)}
+                        title="Önceki"
+                      >
+                        <ChevronLeft size={18} />
+                      </button>
+                      <span className="pagination-info">{currentPageGeometries} / {totalPagesGeometries}</span>
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageGeometries === totalPagesGeometries} 
+                        onClick={() => setCurrentPageGeometries(prev => prev + 1)}
+                        title="Sonraki"
+                      >
+                        <ChevronRight size={18} />
+                      </button>
                     </div>
                   )}
-                </div>
+                </>
               )}
             </div>
-          ))
-        )}
+          )}
+        </div>
+
+        {/* GÜZERGAHLAR BÖLÜMÜ */}
+        <div className="collapsible-section">
+          <div className="section-header" onClick={() => toggleSection('routes')}>
+            <div className="section-title">
+              <span>Güzergahlar</span>
+            </div>
+            <div className="section-chevron">
+              <span className="chevron-icon">{sectionOpen.routes ? <ChevronDown size={18} /> : <ChevronDown size={18} style={{transform: 'rotate(-90deg)'}} />}</span>
+            </div>
+          </div>
+          {sectionOpen.routes && (
+            <div className="section-content">
+              <div className="search-container" style={{ padding: '0 0 1rem 0' }}>
+                <div className="search-input-wrapper">
+                  <Search size={18} className="search-icon" />
+                  <input
+                    type="text"
+                    placeholder="Güzergahlarda Ara..."
+                    value={searchRoutes}
+                    onChange={handleSearchRoutes}
+                    className="search-input"
+                  />
+                </div>
+              </div>
+              {paginatedRoutes.length === 0 ? (
+                <div className="empty-state">Kayıt bulunamadı.</div>
+              ) : (
+                <>
+                  {paginatedRoutes.map(route => renderItem(route, 'route', handleDeleteRoute))}
+                  {totalPagesRoutes > 1 && (
+                    <div className="pagination-container">
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageRoutes === 1} 
+                        onClick={() => setCurrentPageRoutes(prev => prev - 1)}
+                        title="Önceki"
+                      >
+                        <ChevronLeft size={18} />
+                      </button>
+                      <span className="pagination-info">{currentPageRoutes} / {totalPagesRoutes}</span>
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageRoutes === totalPagesRoutes} 
+                        onClick={() => setCurrentPageRoutes(prev => prev + 1)}
+                        title="Sonraki"
+                      >
+                        <ChevronRight size={18} />
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

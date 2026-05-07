@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import MapComponent from './components/MapComponent';
 import GeometryList from './components/GeometryList';
-import { geometryService } from './services/api';
-import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon } from 'lucide-react';
+import { geometryService, routeService } from './services/api';
+import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon, Navigation } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import './App.css';
@@ -61,11 +61,15 @@ const CustomModal = ({ isOpen, title, message, type, defaultValue, onConfirm, on
 function AppContent() {
   const [drawType, setDrawType] = useState(null);
   const [geometries, setGeometries] = useState([]);
+  const [routes, setRoutes] = useState([]);
   const [zoomTo, setZoomTo] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [baseLayer, setBaseLayer] = useState(localStorage.getItem('baseLayer') || 'osm');
   const [isEditMode, setIsEditMode] = useState(false);
-  
+  const [measureMode, setMeasureMode] = useState(null);
+  const [routingMode, setRoutingMode] = useState(false);
+
+
   const { user, logout } = useAuth();
 
   // Modal State
@@ -99,12 +103,23 @@ function AppContent() {
       const data = await geometryService.getAll();
       setGeometries(data);
     } catch (error) {
-      console.error("Yükleme hatası:", error);
+      console.error("Geometri yükleme hatası:", error);
+    }
+  };
+
+  const fetchRoutes = async () => {
+    if (!user) return;
+    try {
+      const data = await routeService.getAll();
+      setRoutes(data);
+    } catch (error) {
+      console.error("Rota yükleme hatası:", error);
     }
   };
 
   useEffect(() => {
     fetchGeometries();
+    fetchRoutes();
   }, [user]);
 
   useEffect(() => {
@@ -114,9 +129,9 @@ function AppContent() {
   useEffect(() => {
     const handleClickOutside = (event) => {
       // Eğer sidebar açıksa ve tıklanan yer sidebar veya menü butonu değilse kapat
-      if (isSidebarOpen && 
-          !event.target.closest('.sidebar-wrapper') && 
-          !event.target.closest('.menu-toggle-btn')) {
+      if (isSidebarOpen &&
+        !event.target.closest('.sidebar-wrapper') &&
+        !event.target.closest('.menu-toggle-btn')) {
         setIsSidebarOpen(false);
       }
     };
@@ -143,7 +158,7 @@ function AppContent() {
   };
 
   if (!user) {
-      return <LoginPage />;
+    return <LoginPage />;
   }
 
   return (
@@ -177,53 +192,96 @@ function AppContent() {
         </div>
 
         <div className="navbar-buttons">
-          <button 
-            className={`nav-btn ${drawType === 'Point' ? 'active' : ''}`} 
-            onClick={() => setDrawType('Point')}
+          <button
+            className={`nav-btn ${drawType === 'Point' ? 'active' : ''}`}
+            onClick={() => { setDrawType('Point'); setMeasureMode(null); setIsEditMode(false); }}
             data-tooltip="Nokta Çiz"
           >
             <MapPin size={18} /> Point
           </button>
-          <button 
-            className={`nav-btn ${drawType === 'LineString' ? 'active' : ''}`} 
-            onClick={() => setDrawType('LineString')}
+          <button
+            className={`nav-btn ${drawType === 'LineString' ? 'active' : ''}`}
+            onClick={() => { setDrawType('LineString'); setMeasureMode(null); setIsEditMode(false); }}
             data-tooltip="Çizgi Çiz"
           >
             <Share2 size={18} /> Line
           </button>
-          <button 
-            className={`nav-btn ${drawType === 'Polygon' ? 'active' : ''}`} 
-            onClick={() => setDrawType('Polygon')}
+          <button
+            className={`nav-btn ${drawType === 'Polygon' ? 'active' : ''}`}
+            onClick={() => { setDrawType('Polygon'); setMeasureMode(null); setIsEditMode(false); }}
             data-tooltip="Poligon Çiz"
           >
             <Pentagon size={18} /> Polygon
           </button>
-          {drawType && (
-            <button 
-              className="nav-btn cancel-btn" 
-              onClick={() => setDrawType(null)}
-              data-tooltip="Çizimi İptal Et"
-            >
-              <XCircle size={18} /> İptal
-            </button>
-          )}
           <button
             className={`nav-btn ${isEditMode ? 'active edit-active' : ''}`}
             onClick={() => {
               setIsEditMode(!isEditMode);
               setDrawType(null);
+              setMeasureMode(null);
             }}
             data-tooltip={isEditMode ? 'Düzenlemeyi Kapat' : 'Düzenlemeyi Aç'}
           >
             <Edit2 size={18} />
           </button>
-          
+
+          <div className="nav-divider" />
+
+          <button
+            type="button"
+            className={`nav-btn measure-btn ${measureMode === 'LineString' ? 'active measure-active' : ''}`}
+            onClick={() => {
+              setMeasureMode(measureMode === 'LineString' ? null : 'LineString');
+              setDrawType(null);
+              setIsEditMode(false);
+            }}
+            data-tooltip="Mesafe Ölç"
+          >
+            <Share2 size={18} /> Mesafe
+          </button>
+          <button
+            type="button"
+            className={`nav-btn measure-btn ${measureMode === 'Polygon' ? 'active measure-active' : ''}`}
+            onClick={() => {
+              setMeasureMode(measureMode === 'Polygon' ? null : 'Polygon');
+              setDrawType(null);
+              setIsEditMode(false);
+            }}
+            data-tooltip="Alan Ölç"
+          >
+            <Pentagon size={18} /> Alan
+          </button>
+
+          <button
+            type="button"
+            className={`nav-btn routing-btn ${routingMode ? 'active routing-active' : ''}`}
+            onClick={() => {
+              setRoutingMode(!routingMode);
+              setDrawType(null);
+              setMeasureMode(null);
+              setIsEditMode(false);
+            }}
+            data-tooltip="Rota Oluştur"
+          >
+            <Navigation size={18} /> Rota
+          </button>
+
+          {(drawType || measureMode || routingMode) && (
+            <button
+              className="nav-btn cancel-btn"
+              onClick={() => { setDrawType(null); setMeasureMode(null); setRoutingMode(false); }}
+              data-tooltip="İptal Et"
+            >
+              <XCircle size={18} /> İptal
+            </button>
+          )}
+
           <div className="user-info">
             <div className="username-display">
-               <UserIcon size={16} /> {user.username}
+              <UserIcon size={16} /> {user.username}
             </div>
             <button className="logout-btn" onClick={logout} title="Çıkış Yap">
-                <LogOut size={18} />
+              <LogOut size={18} />
             </button>
           </div>
         </div>
@@ -234,7 +292,11 @@ function AppContent() {
         <div className={`sidebar-wrapper ${isSidebarOpen ? 'open' : ''}`}>
           <GeometryList
             geometries={geometries}
+            routes={routes}
             onDelete={handleDelete}
+            notify={(t, m, tp, cb, dv, ccb) => showModal(t, m, tp, cb, dv, ccb)}
+            refreshData={fetchGeometries}
+            refreshRoutes={fetchRoutes}
             onZoom={(geo) => { setZoomTo(geo); setIsSidebarOpen(false); }}
           />
         </div>
@@ -244,11 +306,17 @@ function AppContent() {
             drawType={drawType}
             setDrawType={setDrawType}
             geometries={geometries}
+            routes={routes}
             refreshData={fetchGeometries}
+            refreshRoutes={fetchRoutes}
             zoomTo={zoomTo}
             baseLayer={baseLayer}
             isEditMode={isEditMode}
             setIsEditMode={setIsEditMode}
+            measureMode={measureMode}
+            setMeasureMode={setMeasureMode}
+            routingMode={routingMode}
+            setRoutingMode={setRoutingMode}
             notify={(t, m, tp, cb, dv, ccb) => showModal(t, m, tp, cb, dv, ccb)}
           />
         </main>
@@ -258,11 +326,11 @@ function AppContent() {
 }
 
 function App() {
-    return (
-        <AuthProvider>
-            <AppContent />
-        </AuthProvider>
-    );
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
 }
 
 export default App;

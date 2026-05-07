@@ -52,3 +52,25 @@ export const geometryService = {
     }
 };
 
+export const routeService = {
+    getAll: async () => {
+        const response = await axios.get(`${BASE_URL}/routes`);
+        return response.data;
+    },
+    getById: async (id) => {
+        const response = await axios.get(`${BASE_URL}/routes/${id}`);
+        return response.data;
+    },
+    create: async (data) => {
+        const response = await axios.post(`${BASE_URL}/routes`, data);
+        return response.data;
+    },
+    update: async (id, data) => {
+        const response = await axios.put(`${BASE_URL}/routes/${id}`, data);
+        return response.data;
+    },
+    delete: async (id) => {
+        await axios.delete(`${BASE_URL}/routes/${id}`);
+    }
+};
+
