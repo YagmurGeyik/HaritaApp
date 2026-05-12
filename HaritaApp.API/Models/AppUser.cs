@@ -11,5 +11,6 @@ namespace HaritaApp.API.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public ICollection<Geometries> Geometries { get; set; } = new List<Geometries>();
         public ICollection<Routes> Routes { get; set; } = new List<Routes>();
+        public ICollection<Stop> Stops { get; set; } = new List<Stop>();
     }
 }

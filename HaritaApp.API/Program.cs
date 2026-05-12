@@ -11,6 +11,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(new NetTopologySuite.IO.Converters.GeoJsonConverterFactory());
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 
 // OpenAPI yapılandırması
@@ -20,11 +21,11 @@ builder.Services.AddOpenApi();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll",
-        builder =>
+        b =>
         {
-            builder.AllowAnyOrigin()
-                   .AllowAnyMethod()
-                   .AllowAnyHeader();
+            b.AllowAnyOrigin()
+             .AllowAnyMethod()
+             .AllowAnyHeader();
         });
 });
 
@@ -69,5 +70,49 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Veri Taşıma: Eski Waypoints JSON'larını Stops ve RouteStops tablolarına taşı
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var routesWithWaypoints = dbContext.Routes.Where(r => r.Waypoints != null && r.Waypoints != "").ToList();
+
+    foreach (var route in routesWithWaypoints)
+    {
+        try
+        {
+            var points = System.Text.Json.JsonSerializer.Deserialize<double[][]>(route.Waypoints!);
+            if (points != null)
+            {
+                for (int i = 0; i < points.Length; i++)
+                {
+                    var pt = points[i];
+                    var stop = new HaritaApp.API.Models.Stop
+                    {
+                        Name = $"Durak {i + 1} ({route.Name})",
+                        Longitude = pt[0],
+                        Latitude = pt[1],
+                        UserId = route.UserId,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    dbContext.Stops.Add(stop);
+                    dbContext.SaveChanges(); // ID alabilmek için kaydediyoruz
+
+                    var routeStop = new HaritaApp.API.Models.RouteStop
+                    {
+                        RouteId = route.Id,
+                        StopId = stop.Id,
+                        OrderIndex = i
+                    };
+                    dbContext.RouteStops.Add(routeStop);
+                }
+            }
+        }
+        catch { } // JSON parse hatası olursa atla
+
+        route.Waypoints = null; // Taşıma sonrası eski veriyi temizle
+    }
+    dbContext.SaveChanges();
+}
 
 app.Run();

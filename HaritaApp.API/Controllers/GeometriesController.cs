@@ -19,15 +19,18 @@ namespace HaritaApp.API.Controllers
             _context = context;
         }
 
-        // JWT token'dan mevcut kullanıcının Id'sini alır
-        private int GetUserId() =>
-            int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        private bool TryGetUserId(out int userId)
+        {
+            userId = 0;
+            var userIdValue = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            return int.TryParse(userIdValue, out userId);
+        }
 
         // GET: api/geometries – Sadece giriş yapan kullanıcının çizimleri
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Geometries>>> GetGeometries()
         {
-            var userId = GetUserId();
+            if (!TryGetUserId(out var userId)) return Unauthorized();
             return await _context.Geometries
                 .Where(g => g.UserId == userId)
                 .ToListAsync();
@@ -37,7 +40,7 @@ namespace HaritaApp.API.Controllers
         [HttpGet("{id}")]
         public async Task<ActionResult<Geometries>> GetGeometry(int id)
         {
-            var userId = GetUserId();
+            if (!TryGetUserId(out var userId)) return Unauthorized();
             var geometry = await _context.Geometries.FindAsync(id);
 
             if (geometry == null) return NotFound();
@@ -50,7 +53,8 @@ namespace HaritaApp.API.Controllers
         [HttpPost]
         public async Task<ActionResult<Geometries>> PostGeometry(Geometries geometry)
         {
-            geometry.UserId = GetUserId();
+            if (!TryGetUserId(out var userId)) return Unauthorized();
+            geometry.UserId = userId;
             _context.Geometries.Add(geometry);
             await _context.SaveChangesAsync();
 
@@ -63,7 +67,7 @@ namespace HaritaApp.API.Controllers
         {
             if (id != geometry.Id) return BadRequest();
 
-            var userId = GetUserId();
+            if (!TryGetUserId(out var userId)) return Unauthorized();
             var existing = await _context.Geometries.FindAsync(id);
             if (existing == null) return NotFound();
             if (existing.UserId != userId) return Forbid();
@@ -89,7 +93,7 @@ namespace HaritaApp.API.Controllers
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteGeometry(int id)
         {
-            var userId = GetUserId();
+            if (!TryGetUserId(out var userId)) return Unauthorized();
             var geometry = await _context.Geometries.FindAsync(id);
             if (geometry == null) return NotFound();
             if (geometry.UserId != userId) return Forbid();

@@ -3,6 +3,7 @@ using System;
 using HaritaApp.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace HaritaApp.API.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260508083902_FixRoutesAndWaypoints")]
+    partial class FixRoutesAndWaypoints
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -88,33 +91,6 @@ namespace HaritaApp.API.Migrations
                     b.ToTable("Geometries");
                 });
 
-            modelBuilder.Entity("HaritaApp.API.Models.RouteStop", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<int>("OrderIndex")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("RouteId")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("StopId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StopId");
-
-                    b.HasIndex("RouteId", "StopId")
-                        .IsUnique();
-
-                    b.ToTable("RouteStops");
-                });
-
             modelBuilder.Entity("HaritaApp.API.Models.Routes", b =>
                 {
                     b.Property<int>("Id")
@@ -151,37 +127,6 @@ namespace HaritaApp.API.Migrations
                     b.ToTable("Routes");
                 });
 
-            modelBuilder.Entity("HaritaApp.API.Models.Stop", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<double>("Latitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<double>("Longitude")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("Stops");
-                });
-
             modelBuilder.Entity("HaritaApp.API.Models.Geometries", b =>
                 {
                     b.HasOne("HaritaApp.API.Models.AppUser", "User")
@@ -191,25 +136,6 @@ namespace HaritaApp.API.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("HaritaApp.API.Models.RouteStop", b =>
-                {
-                    b.HasOne("HaritaApp.API.Models.Routes", "Route")
-                        .WithMany("RouteStops")
-                        .HasForeignKey("RouteId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("HaritaApp.API.Models.Stop", "Stop")
-                        .WithMany("RouteStops")
-                        .HasForeignKey("StopId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Route");
-
-                    b.Navigation("Stop");
                 });
 
             modelBuilder.Entity("HaritaApp.API.Models.Routes", b =>
@@ -223,34 +149,11 @@ namespace HaritaApp.API.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("HaritaApp.API.Models.Stop", b =>
-                {
-                    b.HasOne("HaritaApp.API.Models.AppUser", "User")
-                        .WithMany("Stops")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("HaritaApp.API.Models.AppUser", b =>
                 {
                     b.Navigation("Geometries");
 
                     b.Navigation("Routes");
-
-                    b.Navigation("Stops");
-                });
-
-            modelBuilder.Entity("HaritaApp.API.Models.Routes", b =>
-                {
-                    b.Navigation("RouteStops");
-                });
-
-            modelBuilder.Entity("HaritaApp.API.Models.Stop", b =>
-                {
-                    b.Navigation("RouteStops");
                 });
 #pragma warning restore 612, 618
         }

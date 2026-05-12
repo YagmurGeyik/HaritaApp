@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import MapComponent from './components/MapComponent';
 import GeometryList from './components/GeometryList';
-import { geometryService, routeService } from './services/api';
+import { geometryService, routeService, stopService } from './services/api';
 import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon, Navigation } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
@@ -62,12 +62,20 @@ function AppContent() {
   const [drawType, setDrawType] = useState(null);
   const [geometries, setGeometries] = useState([]);
   const [routes, setRoutes] = useState([]);
+  const [stops, setStops] = useState([]);
   const [zoomTo, setZoomTo] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [baseLayer, setBaseLayer] = useState(localStorage.getItem('baseLayer') || 'osm');
   const [isEditMode, setIsEditMode] = useState(false);
   const [measureMode, setMeasureMode] = useState(null);
   const [routingMode, setRoutingMode] = useState(false);
+  const [hiddenRoutes, setHiddenRoutes] = useState([]);
+
+  const toggleRouteVisibility = (routeId) => {
+    setHiddenRoutes(prev => 
+      prev.includes(routeId) ? prev.filter(id => id !== routeId) : [...prev, routeId]
+    );
+  };
 
 
   const { user, logout } = useAuth();
@@ -117,9 +125,20 @@ function AppContent() {
     }
   };
 
+  const fetchStops = async () => {
+    if (!user) return;
+    try {
+      const data = await stopService.getAll();
+      setStops(data);
+    } catch (error) {
+      console.error("Durak yükleme hatası:", error);
+    }
+  };
+
   useEffect(() => {
     fetchGeometries();
     fetchRoutes();
+    fetchStops();
   }, [user]);
 
   useEffect(() => {
@@ -293,11 +312,15 @@ function AppContent() {
           <GeometryList
             geometries={geometries}
             routes={routes}
+            stops={stops}
             onDelete={handleDelete}
             notify={(t, m, tp, cb, dv, ccb) => showModal(t, m, tp, cb, dv, ccb)}
             refreshData={fetchGeometries}
             refreshRoutes={fetchRoutes}
+            refreshStops={fetchStops}
             onZoom={(geo) => { setZoomTo(geo); setIsSidebarOpen(false); }}
+            hiddenRoutes={hiddenRoutes}
+            toggleRouteVisibility={toggleRouteVisibility}
           />
         </div>
 
@@ -318,6 +341,7 @@ function AppContent() {
             routingMode={routingMode}
             setRoutingMode={setRoutingMode}
             notify={(t, m, tp, cb, dv, ccb) => showModal(t, m, tp, cb, dv, ccb)}
+            hiddenRoutes={hiddenRoutes}
           />
         </main>
       </div>

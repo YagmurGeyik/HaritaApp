@@ -74,3 +74,41 @@ export const routeService = {
     }
 };
 
+export const stopService = {
+    getAll: async () => {
+        const response = await axios.get(`${BASE_URL}/stops`);
+        return response.data;
+    },
+    getById: async (id) => {
+        const response = await axios.get(`${BASE_URL}/stops/${id}`);
+        return response.data;
+    },
+    create: async (data) => {
+        const response = await axios.post(`${BASE_URL}/stops`, data);
+        return response.data;
+    },
+    update: async (id, data) => {
+        const response = await axios.put(`${BASE_URL}/stops/${id}`, data);
+        return response.data;
+    },
+    delete: async (id) => {
+        await axios.delete(`${BASE_URL}/stops/${id}`);
+    }
+};
+
+export const routeStopService = {
+    getRouteStops: async (routeId) => {
+        const response = await axios.get(`${BASE_URL}/routes/${routeId}/stops`);
+        return response.data;
+    },
+    addStopToRoute: async (routeId, stopId) => {
+        const response = await axios.post(`${BASE_URL}/routes/${routeId}/stops`, { stopId });
+        return response.data;
+    },
+    removeStopFromRoute: async (routeId, stopId) => {
+        await axios.delete(`${BASE_URL}/routes/${routeId}/stops/${stopId}`);
+    },
+    reorderStops: async (routeId, reorderData) => {
+        await axios.put(`${BASE_URL}/routes/${routeId}/stops/reorder`, reorderData);
+    }
+};

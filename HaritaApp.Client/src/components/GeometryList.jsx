@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Trash2, Navigation, Search, Info, ChevronDown, ChevronUp, Map, Route as RouteIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Trash2, Navigation, Search, Info, ChevronDown, ChevronUp, Map, Route as RouteIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff } from 'lucide-react';
 import { geometryService, routeService } from '../services/api';
+import { getRouteColor } from '../utils/colorUtils';
+import RouteStopEditor from './RouteStopEditor';
 
-const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, notify }) => {
+const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, refreshStops, onZoom, notify, hiddenRoutes = [], toggleRouteVisibility }) => {
   const [searchGeometries, setSearchGeometries] = useState('');
   const [searchRoutes, setSearchRoutes] = useState('');
   const [expandedId, setExpandedId] = useState(null);
-  const [sectionOpen, setSectionOpen] = useState({ geometries: false, routes: false });
+  const [sectionOpen, setSectionOpen] = useState({ geometries: false, routes: false, stops: false });
   const [currentPageGeometries, setCurrentPageGeometries] = useState(1);
   const [currentPageRoutes, setCurrentPageRoutes] = useState(1);
   const itemsPerPage = 5;
@@ -29,7 +31,11 @@ const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, 
     geo.name.toLowerCase().includes(searchGeometries.toLowerCase())
   );
 
-  const filteredRoutes = routes.filter(route =>
+  const uniqueRoutes = (routes || []).filter(
+    (r, idx, arr) => arr.findIndex(x => x.id === r.id) === idx
+  );
+
+  const filteredRoutes = uniqueRoutes.filter(route =>
     route.name.toLowerCase().includes(searchRoutes.toLowerCase())
   );
 
@@ -89,50 +95,93 @@ const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, 
     return '📌';
   };
 
-  const renderItem = (item, type, onDelete) => (
-    <div key={item.id} className="geometry-item-wrapper">
-      <div className="geometry-item">
-        <div className="item-info">
-          <div className="item-name">{typeIcon(item.geometryType)} {item.name}</div>
-          <div className="item-type">{item.geometryType}</div>
+  const renderItem = (item, type, onDelete) => {
+    const isRoute = type === 'route';
+    const routeColor = isRoute ? getRouteColor(item.id) : null;
+
+    return (
+      <div key={item.id} className="geometry-item-wrapper">
+        <div className="geometry-item" style={isRoute ? { borderLeft: `4px solid ${routeColor}`, paddingLeft: '10px' } : {}}>
+          {isRoute && (
+            <div style={{
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: routeColor,
+              flexShrink: 0,
+              boxShadow: `0 0 6px ${routeColor}`,
+              marginRight: '4px'
+            }} />
+          )}
+          <div className="item-info" style={isRoute && hiddenRoutes.includes(item.id) ? { opacity: 0.5 } : {}}>
+            <div className="item-name">{typeIcon(item.geometryType)} {item.name}</div>
+            <div className="item-type">{item.geometryType}</div>
+          </div>
+          <div className="item-actions">
+            <button
+              className={`action-btn info-btn ${expandedId === item.id ? 'active' : ''}`}
+              onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
+              title="Detay"
+            >
+              <Info size={15} />
+            </button>
+            {isRoute && (
+              <button
+                className="action-btn"
+                onClick={() => toggleRouteVisibility && toggleRouteVisibility(item.id)}
+                title={hiddenRoutes.includes(item.id) ? "Göster" : "Gizle"}
+              >
+                {hiddenRoutes.includes(item.id) ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            )}
+            <button
+              className="action-btn zoom-btn"
+              onClick={() => onZoom(item)}
+              title="Haritada Göster"
+            >
+              <Navigation size={15} />
+            </button>
+            <button
+              className="action-btn delete-btn-small"
+              onClick={() => onDelete(item.id)}
+              title="Sil"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
         </div>
-        <div className="item-actions">
-          <button
-            className={`action-btn info-btn ${expandedId === item.id ? 'active' : ''}`}
-            onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
-            title="Detay"
-          >
-            <Info size={15} />
-          </button>
-          <button
-            className="action-btn zoom-btn"
-            onClick={() => onZoom(item)}
-            title="Haritada Göster"
-          >
-            <Navigation size={15} />
-          </button>
-          <button
-            className="action-btn delete-btn-small"
-            onClick={() => onDelete(item.id)}
-            title="Sil"
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
+        {expandedId === item.id && (
+          <div className="item-detail">
+            <div className="item-detail-row">
+              <span>ID</span><span>#{item.id}</span>
+            </div>
+            {isRoute && (
+              <div className="item-detail-row">
+                <span>Renk</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ display: 'inline-block', width: '14px', height: '14px', borderRadius: '3px', background: routeColor, boxShadow: `0 0 5px ${routeColor}` }} />
+                  {routeColor}
+                </span>
+              </div>
+            )}
+            <div className="item-detail-row">
+              <span>Tarih</span>
+              <span>{new Date(item.createdAt).toLocaleDateString('tr-TR')}</span>
+            </div>
+            
+            {isRoute && (
+              <RouteStopEditor 
+                route={item} 
+                allStops={stops} 
+                notify={notify} 
+                onUpdate={() => { refreshRoutes && refreshRoutes(); }} 
+              />
+            )}
+          </div>
+        )}
       </div>
-      {expandedId === item.id && (
-        <div className="item-detail">
-          <div className="item-detail-row">
-            <span>ID</span><span>#{item.id}</span>
-          </div>
-          <div className="item-detail-row">
-            <span>Tarih</span>
-            <span>{new Date(item.createdAt).toLocaleDateString('tr-TR')}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="geometry-list-panel">
@@ -175,6 +224,14 @@ const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, 
                       <button 
                         className="pagination-btn"
                         disabled={currentPageGeometries === 1} 
+                        onClick={() => setCurrentPageGeometries(1)}
+                        title="İlk Sayfa"
+                      >
+                        <ChevronsLeft size={18} />
+                      </button>
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageGeometries === 1} 
                         onClick={() => setCurrentPageGeometries(prev => prev - 1)}
                         title="Önceki"
                       >
@@ -188,6 +245,14 @@ const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, 
                         title="Sonraki"
                       >
                         <ChevronRight size={18} />
+                      </button>
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageGeometries === totalPagesGeometries} 
+                        onClick={() => setCurrentPageGeometries(totalPagesGeometries)}
+                        title="Son Sayfa"
+                      >
+                        <ChevronsRight size={18} />
                       </button>
                     </div>
                   )}
@@ -231,6 +296,14 @@ const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, 
                       <button 
                         className="pagination-btn"
                         disabled={currentPageRoutes === 1} 
+                        onClick={() => setCurrentPageRoutes(1)}
+                        title="İlk Sayfa"
+                      >
+                        <ChevronsLeft size={18} />
+                      </button>
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageRoutes === 1} 
                         onClick={() => setCurrentPageRoutes(prev => prev - 1)}
                         title="Önceki"
                       >
@@ -244,6 +317,14 @@ const GeometryList = ({ geometries, routes, refreshData, refreshRoutes, onZoom, 
                         title="Sonraki"
                       >
                         <ChevronRight size={18} />
+                      </button>
+                      <button 
+                        className="pagination-btn"
+                        disabled={currentPageRoutes === totalPagesRoutes} 
+                        onClick={() => setCurrentPageRoutes(totalPagesRoutes)}
+                        title="Son Sayfa"
+                      >
+                        <ChevronsRight size={18} />
                       </button>
                     </div>
                   )}
