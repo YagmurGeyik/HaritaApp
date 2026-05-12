@@ -21,7 +21,9 @@ import Point from 'ol/geom/Point';
 import { getLength, getArea } from 'ol/sphere';
 import { transform } from 'ol/proj';
 import { unByKey } from 'ol/Observable';
-import { geometryService, routeService, stopService } from '../services/api';
+import { geometryService } from '../services/geometryService';
+import { routeService } from '../services/routeService';
+import { stopService } from '../services/stopService';
 import { getRouteColor } from '../utils/colorUtils';
 import axios from 'axios';
 

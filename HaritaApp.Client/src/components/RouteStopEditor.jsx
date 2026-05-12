@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Trash2, GripVertical, Check, X, Edit2 } from 'lucide-react';
-import { routeStopService, stopService } from '../services/api';
+import { routeStopService } from '../services/routeStopService';
+import { stopService } from '../services/stopService';
 
 const RouteStopEditor = ({ route, allStops, notify, onUpdate }) => {
   const [routeStops, setRouteStops] = useState([]);

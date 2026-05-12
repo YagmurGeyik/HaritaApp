@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Trash2, Edit2, Navigation, Search, MapPin } from 'lucide-react';
-import { stopService } from '../services/api';
+import { stopService } from '../services/stopService';
 
 const StopManagerPanel = ({ stops, refreshStops, onZoom, notify }) => {
   const [search, setSearch] = useState('');

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Trash2, Navigation, Search, Info, ChevronDown, ChevronUp, Map, Route as RouteIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff } from 'lucide-react';
-import { geometryService, routeService } from '../services/api';
+import { geometryService } from '../services/geometryService';
+import { routeService } from '../services/routeService';
 import { getRouteColor } from '../utils/colorUtils';
 import RouteStopEditor from './RouteStopEditor';
 

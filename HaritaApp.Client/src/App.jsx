@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import MapComponent from './components/MapComponent';
 import GeometryList from './components/GeometryList';
-import { geometryService, routeService, stopService } from './services/api';
+import { geometryService } from './services/geometryService';
+import { routeService } from './services/routeService';
+import { stopService } from './services/stopService';
 import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon, Navigation } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
