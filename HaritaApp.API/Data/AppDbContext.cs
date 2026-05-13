@@ -22,49 +22,96 @@ namespace HaritaApp.API.Data
         {
             base.OnModelCreating(modelBuilder);
 
-            // Geometries → AppUser
-            modelBuilder.Entity<Geometries>()
-                .HasOne(g => g.User)
-                .WithMany(u => u.Geometries)
-                .HasForeignKey(g => g.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+            // ── tbl_users ────────────────────────────────────────────────
+            modelBuilder.Entity<AppUser>(b =>
+            {
+                b.ToTable("tbl_users");
+                b.Property(u => u.Id).HasColumnName("id");
+                b.Property(u => u.Username).HasColumnName("username");
+                b.Property(u => u.PasswordHash).HasColumnName("password_hash");
+                b.Property(u => u.Email).HasColumnName("email");
+                b.Property(u => u.CreatedAt).HasColumnName("created_at");
+                b.HasIndex(u => u.Username).IsUnique();
+            });
 
-            // Routes → AppUser
-            modelBuilder.Entity<Routes>()
-                .HasOne(r => r.User)
-                .WithMany(u => u.Routes)
-                .HasForeignKey(r => r.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+            // ── tbl_geometries ───────────────────────────────────────────
+            modelBuilder.Entity<Geometries>(b =>
+            {
+                b.ToTable("tbl_geometries");
+                b.Property(g => g.Id).HasColumnName("id");
+                b.Property(g => g.Name).HasColumnName("name");
+                b.Property(g => g.GeometryType).HasColumnName("geometry_type");
+                b.Property(g => g.Geoloc).HasColumnName("geoloc");
+                b.Property(g => g.CreatedAt).HasColumnName("created_at");
+                b.Property(g => g.UpdatedAt).HasColumnName("updated_at");
+                b.Property(g => g.UserId).HasColumnName("user_id");
 
-            // Stop → AppUser
-            modelBuilder.Entity<Stop>()
-                .HasOne(s => s.User)
-                .WithMany(u => u.Stops)
-                .HasForeignKey(s => s.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                b.HasOne(g => g.User)
+                 .WithMany(u => u.Geometries)
+                 .HasForeignKey(g => g.UserId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
 
-            // RouteStop → Routes (güzergah silinince ilişkiler de silinsin)
-            modelBuilder.Entity<RouteStop>()
-                .HasOne(rs => rs.Route)
-                .WithMany(r => r.RouteStops)
-                .HasForeignKey(rs => rs.RouteId)
-                .OnDelete(DeleteBehavior.Cascade);
+            // ── tbl_routes ───────────────────────────────────────────────
+            modelBuilder.Entity<Routes>(b =>
+            {
+                b.ToTable("tbl_routes");
+                b.Property(r => r.Id).HasColumnName("id");
+                b.Property(r => r.Name).HasColumnName("name");
+                b.Property(r => r.GeometryType).HasColumnName("geometry_type");
+                b.Property(r => r.Waypoints).HasColumnName("waypoints");
+                b.Property(r => r.Geoloc).HasColumnName("geoloc");
+                b.Property(r => r.CreatedAt).HasColumnName("created_at");
+                b.Property(r => r.UpdatedAt).HasColumnName("updated_at");
+                b.Property(r => r.UserId).HasColumnName("user_id");
 
-            // RouteStop → Stop (durak silinince ilişkiler de silinsin)
-            modelBuilder.Entity<RouteStop>()
-                .HasOne(rs => rs.Stop)
-                .WithMany(s => s.RouteStops)
-                .HasForeignKey(rs => rs.StopId)
-                .OnDelete(DeleteBehavior.Cascade);
+                b.HasOne(r => r.User)
+                 .WithMany(u => u.Routes)
+                 .HasForeignKey(r => r.UserId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
 
-            // Bir güzergahta aynı durak iki kez eklenemesin
-            modelBuilder.Entity<RouteStop>()
-                .HasIndex(rs => new { rs.RouteId, rs.StopId })
-                .IsUnique();
+            // ── tbl_stops ────────────────────────────────────────────────
+            modelBuilder.Entity<Stop>(b =>
+            {
+                b.ToTable("tbl_stops");
+                b.Property(s => s.Id).HasColumnName("id");
+                b.Property(s => s.Name).HasColumnName("name");
+                b.Property(s => s.Longitude).HasColumnName("longitude");
+                b.Property(s => s.Latitude).HasColumnName("latitude");
+                b.Property(s => s.CreatedAt).HasColumnName("created_at");
+                b.Property(s => s.UpdatedAt).HasColumnName("updated_at");
+                b.Property(s => s.UserId).HasColumnName("user_id");
 
-            modelBuilder.Entity<AppUser>()
-                .HasIndex(u => u.Username)
-                .IsUnique();
+                b.HasOne(s => s.User)
+                 .WithMany(u => u.Stops)
+                 .HasForeignKey(s => s.UserId)
+                 .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── tbl_route_stops ──────────────────────────────────────────
+            modelBuilder.Entity<RouteStop>(b =>
+            {
+                b.ToTable("tbl_route_stops");
+                b.Property(rs => rs.Id).HasColumnName("id");
+                b.Property(rs => rs.RouteId).HasColumnName("route_id");
+                b.Property(rs => rs.StopId).HasColumnName("stop_id");
+                b.Property(rs => rs.OrderIndex).HasColumnName("order_index");
+                b.Property(rs => rs.UpdatedAt).HasColumnName("updated_at");
+
+                b.HasOne(rs => rs.Route)
+                 .WithMany(r => r.RouteStops)
+                 .HasForeignKey(rs => rs.RouteId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                b.HasOne(rs => rs.Stop)
+                 .WithMany(s => s.RouteStops)
+                 .HasForeignKey(rs => rs.StopId)
+                 .OnDelete(DeleteBehavior.Cascade);
+
+                // Bir güzergahta aynı durak iki kez eklenemesin
+                b.HasIndex(rs => new { rs.RouteId, rs.StopId }).IsUnique();
+            });
         }
         public override int SaveChanges()
         {
