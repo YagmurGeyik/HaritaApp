@@ -13,6 +13,7 @@ import Modify from 'ol/interaction/Modify';
 import Select from 'ol/interaction/Select';
 import Snap from 'ol/interaction/Snap';
 import { click } from 'ol/events/condition';
+import Translate from 'ol/interaction/Translate';
 import Overlay from 'ol/Overlay';
 import { Style, Circle, Fill, Stroke, Icon, Text, RegularShape } from 'ol/style';
 import GeoJSON from 'ol/format/GeoJSON';
@@ -26,6 +27,7 @@ import { routeService } from '../services/routeService';
 import { stopService } from '../services/stopService';
 import { getRouteColor } from '../utils/colorUtils';
 import axios from 'axios';
+import { Eye, Trash2, PlusCircle } from 'lucide-react';
 
 // Başlangıç ve Bitiş ikonları (SVG)
 // Başlangıç: Yeşil iğne içinde beyaz ok
@@ -63,20 +65,16 @@ const getRouteStopStyle = (index, total, routeColor) => {
 // Ok işareti (yön göstermek için) oluşturan stil fonksiyonu
 const getArrowStyles = (geometry, color) => {
   const styles = [];
-  
-  // Geometri koordinatlarını al
+  if (!geometry) return styles;
   const coords = geometry.getCoordinates();
   if (!coords || coords.length < 2) return styles;
 
-  // Her segmentin ortasına ok koyalım (çok sık olmaması için her 10 segmentte bir)
   geometry.forEachSegment((start, end) => {
     const dx = end[0] - start[0];
     const dy = end[1] - start[1];
     const rotation = Math.atan2(dy, dx);
-    
-    // Okun konumu segmentin ortası
     const midpoint = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
-    
+
     styles.push(new Style({
       geometry: new Point(midpoint),
       image: new RegularShape({
@@ -89,9 +87,31 @@ const getArrowStyles = (geometry, color) => {
       })
     }));
   });
-  
-  // Sadece her 10 segmentte bir ok koyalım ki görüntü karışmasın
+
   return styles.filter((_, i) => i % 10 === 0);
+};
+
+const getRouteStyle = (feature) => {
+  const isEditing = feature.get('isEditing');
+  let routeColor = isEditing ? '#f59e0b' : feature.get('routeColor');
+  
+  // Eğer routeColor bir şekilde kaybolmuşsa ve düzenlemede değilsek ID üzerinden tekrar hesapla
+  if (!routeColor) {
+    const realId = feature.get('realId');
+    if (realId) {
+      routeColor = getRouteColor(realId);
+    } else {
+      routeColor = '#3b82f6';
+    }
+  }
+
+  const geometry = feature.getGeometry();
+  const styles = [
+    new Style({ stroke: new Stroke({ color: 'rgba(255,255,255,0.4)', width: 7 }) }),
+    new Style({ stroke: new Stroke({ color: routeColor, width: 4.5 }) }),
+  ];
+  styles.push(...getArrowStyles(geometry, routeColor));
+  return styles;
 };
 
 // OSRM için özel axios instance (CORS hatasını önlemek için Authorization header'ı temizlenir)
@@ -102,7 +122,7 @@ osrmAxios.interceptors.request.use(config => {
 });
 
 
-const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, refreshRoutes, zoomTo, baseLayer, notify, isEditMode, setIsEditMode, measureMode, setMeasureMode, routingMode, setRoutingMode, hiddenRoutes = [] }) => {
+const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, refreshRoutes, zoomTo, baseLayer, notify, isEditMode, setIsEditMode, measureMode, setMeasureMode, routingMode, setRoutingMode, hiddenRoutes = [], toggleRouteVisibility }) => {
 
   const mapElement = useRef(null);
   const [map, setMap] = useState(null);
@@ -117,6 +137,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
   const roadsLayerRef = useRef(null);
   const selectRef = useRef(null);
   const modifyRef = useRef(null);
+  const translateRef = useRef(null);
   const measureDrawRef = useRef(null);
   const snapRef = useRef(null);
   const measureSourceRef = useRef(new VectorSource());
@@ -129,6 +150,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
   const routingDrawRef = useRef(null);
   const stopTooltipRef = useRef(null);
   const stopTooltipOverlayRef = useRef(null);
+  const modifyTimerRef = useRef(null);
 
   const [routingPoints, setRoutingPoints] = useState([]);
   const [routeProfile, setRouteProfile] = useState('driving');
@@ -138,6 +160,25 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
   const isEditModeRef = useRef(isEditMode);
   const measureModeRef = useRef(measureMode);
   const routingModeRef = useRef(routingMode);
+  const [editingRouteId, setEditingRouteId] = useState(null);
+  const editingRouteIdRef = useRef(null);
+  const originalWaypointsRef = useRef(null); // Düzenleme öncesi orijinal waypoints
+  const format = useRef(new GeoJSON()).current;
+
+  useEffect(() => { editingRouteIdRef.current = editingRouteId; }, [editingRouteId]);
+
+  // Düzenleme modu başladığında orijinal halini SADECE BİR KEZ sakla
+  useEffect(() => {
+    if (editingRouteId) {
+      const route = routes.find(r => r.id === editingRouteId);
+      if (route && originalWaypointsRef.current === null) {
+        originalWaypointsRef.current = route.waypoints;
+      }
+    } else {
+      // Düzenleme bittiğinde referansı sıfırla ki bir sonraki sefer taze veri alabilsin
+      originalWaypointsRef.current = null;
+    }
+  }, [editingRouteId, routes]);
 
   useEffect(() => { isEditModeRef.current = isEditMode; }, [isEditMode]);
   useEffect(() => { measureModeRef.current = measureMode; }, [measureMode]);
@@ -175,6 +216,69 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
 
   const activeRouteFeatureRef = useRef(null);
   const activeRouteOriginalGeoJSONRef = useRef(null);
+
+  // --- OSRM Rota Hesaplama Mantığı (TEMİZ) ---
+  // Çoklu durak rota hesaplama fonksiyonu
+  const fetchRouteData = useCallback(async (points, profile) => {
+    if (!points || points.length < 2) {
+      if (notify) notify("Uyarı", "Rota hesaplamak için en az 2 durak eklemelisiniz.", "info");
+      return;
+    }
+    setIsCalculating(true);
+    try {
+      // Tüm durakları OSRM formatına çevir: "lon,lat;lon,lat;..."
+      const waypointStr = points.map(p => `${p[0]},${p[1]}`).join(';');
+      let url;
+      let response;
+
+      if (profile === 'driving') {
+        url = `http://localhost:5000/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+        try {
+          response = await osrmAxios.get(url);
+        } catch (e) {
+          console.warn('Yerel OSRM kapalı, genel sunucuya geçiliyor...');
+          url = `https://router.project-osrm.org/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+          response = await osrmAxios.get(url);
+        }
+      } else if (profile === 'foot') {
+        url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+        response = await osrmAxios.get(url);
+      } else if (profile === 'bike') {
+        url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+        response = await osrmAxios.get(url);
+      }
+
+      if (response && response.data && response.data.code === 'Ok') {
+        const routeGeoJSON = response.data.routes[0].geometry;
+        const distance = (response.data.routes[0].distance / 1000).toFixed(2);
+        const duration = Math.round(response.data.routes[0].duration / 60);
+
+        const routeFeature = format.readFeature(routeGeoJSON, {
+          dataProjection: 'EPSG:4326',
+          featureProjection: 'EPSG:3857'
+        });
+
+        // Sadece yeni rota oluşturma modundaysak turuncu çizgiyi ekle
+        if (routingModeRef.current) {
+          const waypointFeatures = routingSourceRef.current.getFeatures().filter(f => f.get('isWaypoint'));
+          routingSourceRef.current.clear();
+          waypointFeatures.forEach(f => routingSourceRef.current.addFeature(f));
+          routeFeature.set('isRouteLine', true);
+          routingSourceRef.current.addFeature(routeFeature);
+        }
+
+        setCurrentRouteData({ routeGeoJSON, distance, duration });
+        return { routeGeoJSON, distance, duration };
+      }
+    } catch (error) {
+      console.error("OSRM Hatası:", error);
+      if (notify) notify("Hata", "Rota hesaplanamadı. OSRM sunucusu kapalı olabilir.", "info");
+      return null;
+    } finally {
+      setIsCalculating(false);
+    }
+    return null;
+  }, [notify, format]);
 
   const createMeasureTooltip = useCallback((map) => {
     if (!map) return;
@@ -351,7 +455,11 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       } else {
         stopTooltipEl.style.display = 'none';
         stopTooltipOverlay.setPosition(undefined);
-        if (!isEditModeRef.current && !measureModeRef.current) {
+        
+        // Düzenleme modunda sürüklenebilir bir şeyin üzerinde değilsek crosshair'a dön
+        if (isEditModeRef.current) {
+          initialMap.getTargetElement().style.cursor = 'crosshair';
+        } else if (!measureModeRef.current) {
           initialMap.getTargetElement().style.cursor = '';
         }
       }
@@ -381,6 +489,8 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
 
 
     initialMap.on('singleclick', (event) => {
+      // Eğer güzergah düzenleme modu aktifse, detay pop-up'ını açma
+      if (editingRouteIdRef.current) return;
       const feature = initialMap.forEachFeatureAtPixel(event.pixel, (f) => f, {
         layerFilter: (layer) => layer === vectorLayerRef.current,
         hitTolerance: 10
@@ -484,54 +594,46 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     const routeFeatures = (routes || [])
       .filter(item => !hiddenRoutes.includes(item.id))
       .flatMap(item => {
-      const feature = format.readFeature(item.geoloc, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
-      feature.setId(`route-${item.id}`);
-      feature.set('name', item.name);
-      feature.set('itemType', 'route');
-      feature.set('realId', item.id);
-      feature.set('waypoints', item.waypoints);
-      const routeColor = getRouteColor(item.id);
-      feature.set('routeColor', routeColor);
-      const styles = [
-        new Style({ stroke: new Stroke({ color: 'rgba(255,255,255,0.4)', width: 7 }) }),
-        new Style({ stroke: new Stroke({ color: routeColor, width: 4.5 }) }),
-      ];
-      
-      // Yön oklarını ekle
-      styles.push(...getArrowStyles(feature.getGeometry(), routeColor));
-      
-      feature.setStyle(styles);
+        const feature = format.readFeature(item.geoloc, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
+        feature.setId(`route-${item.id}`);
+        feature.set('name', item.name);
+        feature.set('itemType', 'route');
+        feature.set('realId', item.id);
+        feature.set('waypoints', item.waypoints);
+        const routeColor = getRouteColor(item.id);
+        feature.set('routeColor', routeColor);
+        feature.setStyle(getRouteStyle);
+        const features = [feature];
 
-      const features = [feature];
-
-      if (item.waypoints) {
-        try {
-          const points = JSON.parse(item.waypoints);
-          const stopNames = item.stopNames || [];
-          const stopIds = item.stopIds || [];
-          if (Array.isArray(points)) {
-            points.forEach((pt, idx) => {
-              const stopFeature = new Feature({
-                geometry: new Point(fromLonLat(pt)),
-                itemType: 'route-stop',
-                routeName: item.name,
-                routeStopName: stopNames[idx] || `Durak ${idx + 1}`,
-                stopIndex: idx,
-                stopId: stopIds[idx] ?? null,
-                longitude: pt[0],
-                latitude: pt[1],
+        if (item.waypoints) {
+          try {
+            const points = JSON.parse(item.waypoints);
+            const stopNames = item.stopNames || [];
+            const stopIds = item.stopIds || [];
+            if (Array.isArray(points)) {
+              points.forEach((pt, idx) => {
+                const stopFeature = new Feature({
+                  geometry: new Point(fromLonLat(pt)),
+                  itemType: 'route-stop',
+                  routeName: item.name,
+                  routeStopName: stopNames[idx] || `Durak ${idx + 1}`,
+                  stopIndex: idx,
+                  stopId: stopIds[idx] ?? null,
+                  longitude: pt[0],
+                  latitude: pt[1],
+                  routeId: item.id
+                });
+                stopFeature.setStyle(getRouteStopStyle(idx, points.length, routeColor));
+                features.push(stopFeature);
               });
-              stopFeature.setStyle(getRouteStopStyle(idx, points.length, routeColor));
-              features.push(stopFeature);
-            });
+            }
+          } catch (e) {
+            console.error("Waypoint parse hatası:", e);
           }
-        } catch (e) {
-          console.error("Waypoint parse hatası:", e);
         }
-      }
 
-      return features;
-    });
+        return features;
+      });
 
     vectorSourceRef.current.clear();
     vectorSourceRef.current.addFeatures([...geoFeatures, ...routeFeatures]);
@@ -562,11 +664,44 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
   // Geometri Düzenleme Modu (Modify)
   useEffect(() => {
     if (!map) return;
-    if (selectRef.current) map.removeInteraction(selectRef.current);
+    if (selectRef.current) {
+      selectRef.current.getFeatures().clear();
+      map.removeInteraction(selectRef.current);
+    }
     if (modifyRef.current) map.removeInteraction(modifyRef.current);
+    if (translateRef.current) map.removeInteraction(translateRef.current);
+    if (routingSourceRef.current) routingSourceRef.current.clear();
+    
+    // Tüm nesnelerin stillerini tazelemeye zorla ve stilleri sıfırla
+    if (vectorSourceRef.current) {
+      vectorSourceRef.current.getFeatures().forEach(feature => {
+        if (feature.get('itemType') === 'route') {
+          feature.set('isEditing', isEditMode); // Düzenleme moduna göre bayrağı set et
+          feature.setStyle(getRouteStyle); 
+        }
+      });
+      vectorSourceRef.current.changed();
+    }
 
     if (isEditMode) {
-      const select = new Select({ condition: click });
+      // Seçim stili: Nesnenin kendi rengini koru ama vurgula
+      const selectStyle = (feature) => {
+        const itemType = feature.get('itemType');
+        if (itemType === 'route') {
+          const color = feature.get('routeColor') || '#3b82f6';
+          return [
+            new Style({ stroke: new Stroke({ color: 'white', width: 8 }) }),
+            new Style({ stroke: new Stroke({ color: color, width: 6 }) })
+          ];
+        }
+        return null; // Varsayılan stil kullanılsın
+      };
+
+      const select = new Select({ 
+        condition: click,
+        hitTolerance: 10,
+        style: selectStyle
+      });
       selectRef.current = select;
       map.addInteraction(select);
 
@@ -602,42 +737,188 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       });
 
       // Modify: Tüm feature'ları doğrudan source üzerinden düzenle
-      const modify = new Modify({ source: vectorSourceRef.current });
+      const modify = new Modify({ 
+        source: vectorSourceRef.current,
+        pixelTolerance: 15 // Sürüklemeyi başlatmayı kolaylaştırır
+      });
       modifyRef.current = modify;
       map.addInteraction(modify);
 
-      // Vertex sürükleme bittikten sonra veritabanına kaydet
+      // Modifying: Sürükleme sırasında anlık rota geri bildirimi
+      modify.on('modifying', (event) => {
+        const feature = event.features.getArray()[0];
+        if (feature && feature.get('itemType') === 'route-stop') {
+          console.log("Durak sürükleniyor:", feature.get('routeStopName'));
+          const routeId = feature.get('routeId');
+          const stopIndex = feature.get('stopIndex');
+          const newCoord = transform(feature.getGeometry().getCoordinates(), 'EPSG:3857', 'EPSG:4326');
+
+          if (modifyTimerRef.current) clearTimeout(modifyTimerRef.current);
+
+          modifyTimerRef.current = setTimeout(async () => {
+            const routeFeature = vectorSourceRef.current.getFeatureById(`route-${routeId}`);
+            if (routeFeature) {
+              const waypointsStr = routeFeature.get('waypoints');
+              let waypoints = JSON.parse(waypointsStr);
+              waypoints[stopIndex] = [newCoord[0], newCoord[1]];
+
+              const result = await fetchRouteData(waypoints, routeProfile);
+              if (result) {
+                const newGeom = format.readGeometry(result.routeGeoJSON, {
+                  dataProjection: 'EPSG:4326',
+                  featureProjection: 'EPSG:3857'
+                });
+                routeFeature.setGeometry(newGeom);
+              }
+            }
+          }, 50); // 50ms debounce
+        }
+      });
+
+      // ModifyEnd: Sürükleme bittiğinde veritabanını ve rotayı güncelle
       modify.on('modifyend', async (event) => {
         const modifiedFeatures = event.features.getArray();
+        console.log("Sürükleme bitti, güncellenen öğe sayısı:", modifiedFeatures.length);
         if (modifiedFeatures.length === 0) return;
 
         for (const feature of modifiedFeatures) {
           const id = feature.getId();
           if (!id) continue;
-
           const realId = feature.get('realId') || id;
+          
           if (feature.get('itemType') === 'route') continue; // Rota güncellenmesin
 
-          const format = new GeoJSON();
+          // Durak sürükleme işlemi (isEditMode içinde)
+          if (feature.get('itemType') === 'route-stop') {
+            const stopId = feature.get('stopId');
+            const routeId = feature.get('routeId');
+            const stopIndex = feature.get('stopIndex');
+            const newCoord = transform(feature.getGeometry().getCoordinates(), 'EPSG:3857', 'EPSG:4326');
+            
+            try {
+              // 1. Durağı güncelle
+              await stopService.update(stopId, {
+                id: stopId,
+                name: feature.get('routeStopName'),
+                longitude: newCoord[0],
+                latitude: newCoord[1]
+              });
+
+              // 2. Rotayı bul ve waypoint listesini güncelle
+              const routeFeature = vectorSourceRef.current.getFeatureById(`route-${routeId}`);
+              if (routeFeature) {
+                const waypointsStr = routeFeature.get('waypoints');
+                let waypoints = JSON.parse(waypointsStr);
+                waypoints[stopIndex] = [newCoord[0], newCoord[1]];
+
+                // 3. OSRM ile yeni rotayı hesapla
+                const result = await fetchRouteData(waypoints, routeProfile);
+                if (result) {
+                  // 4. Rotayı veritabanında güncelle
+                  await routeService.update(routeId, {
+                    id: routeId,
+                    name: routeFeature.get('name'),
+                    geoloc: result.routeGeoJSON,
+                    waypoints: JSON.stringify(waypoints)
+                  });
+                  
+                  if (refreshRoutes) refreshRoutes();
+                }
+              }
+            } catch (err) {
+              console.error("Durak güncelleme hatası:", err);
+              if (notify) notify("Hata", "Durak güncellenirken bir sorun oluştu.", "info");
+            }
+            continue;
+          }
+
           const updatedGeometry = format.writeGeometryObject(feature.getGeometry(), {
             featureProjection: 'EPSG:3857',
             dataProjection: 'EPSG:4326'
           });
 
-          const payload = {
-            id: realId,
-            name: feature.get('name') || 'İsimsiz',
-            geometryType: feature.getGeometry().getType(),
-            geoloc: updatedGeometry
-          };
+          try {
+            await geometryService.update(realId, {
+              id: realId,
+              name: feature.get('name') || 'İsimsiz',
+              geometryType: feature.getGeometry().getType(),
+              geoloc: updatedGeometry
+            });
+          } catch (err) { console.error("Güncelleme hatası:", err); }
+        }
+      });
 
-          console.log("Güncellenen payload:", payload);
+      // Translate: Durakları taşımak için özel etkileşim
+      const translate = new Translate({
+        source: vectorSourceRef.current,
+        filter: (feature) => feature.get('itemType') === 'route-stop'
+      });
+      translateRef.current = translate;
+      map.addInteraction(translate);
+
+      translate.on('translating', (event) => {
+        const feature = event.features.getArray()[0];
+        if (feature && feature.get('itemType') === 'route-stop') {
+          const routeId = feature.get('routeId');
+          const stopIndex = feature.get('stopIndex');
+          const newCoord = transform(feature.getGeometry().getCoordinates(), 'EPSG:3857', 'EPSG:4326');
+
+          if (modifyTimerRef.current) clearTimeout(modifyTimerRef.current);
+          modifyTimerRef.current = setTimeout(async () => {
+            const routeFeature = vectorSourceRef.current.getFeatureById(`route-${routeId}`);
+            if (routeFeature) {
+              const waypointsStr = routeFeature.get('waypoints');
+              let waypoints = JSON.parse(waypointsStr);
+              waypoints[stopIndex] = [newCoord[0], newCoord[1]];
+
+              const result = await fetchRouteData(waypoints, routeProfile);
+              if (result) {
+                const newGeom = format.readGeometry(result.routeGeoJSON, {
+                  dataProjection: 'EPSG:4326',
+                  featureProjection: 'EPSG:3857'
+                });
+                routeFeature.setGeometry(newGeom);
+              }
+            }
+          }, 60);
+        }
+      });
+
+      translate.on('translateend', async (event) => {
+        const feature = event.features.getArray()[0];
+        if (feature && feature.get('itemType') === 'route-stop') {
+          const stopId = feature.get('stopId');
+          const routeId = feature.get('routeId');
+          const stopIndex = feature.get('stopIndex');
+          const newCoord = transform(feature.getGeometry().getCoordinates(), 'EPSG:3857', 'EPSG:4326');
 
           try {
-            await geometryService.update(realId, payload);
-          } catch (error) {
-            console.error("Geometri güncelleme hatası:", error);
-            notify("Hata", "Konum güncellenemedi.", "info");
+            await stopService.update(stopId, {
+              id: stopId,
+              name: feature.get('routeStopName'),
+              longitude: newCoord[0],
+              latitude: newCoord[1]
+            });
+
+            const routeFeature = vectorSourceRef.current.getFeatureById(`route-${routeId}`);
+            if (routeFeature) {
+              const waypointsStr = routeFeature.get('waypoints');
+              let waypoints = JSON.parse(waypointsStr);
+              waypoints[stopIndex] = [newCoord[0], newCoord[1]];
+
+              const result = await fetchRouteData(waypoints, routeProfile);
+              if (result) {
+                await routeService.update(routeId, {
+                  id: routeId,
+                  name: routeFeature.get('name'),
+                  geoloc: result.routeGeoJSON,
+                  waypoints: JSON.stringify(waypoints)
+                });
+                if (refreshRoutes) refreshRoutes();
+              }
+            }
+          } catch (err) {
+            console.error("Translateend hatası:", err);
           }
         }
       });
@@ -647,7 +928,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     } else {
       map.getTargetElement().style.cursor = '';
     }
-  }, [map, isEditMode]);
+  }, [map, isEditMode, routeProfile, refreshRoutes, notify, format, fetchRouteData]);
 
   useEffect(() => {
     if (!map) return;
@@ -792,134 +1073,42 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     };
   }, [map, measureMode, createMeasureTooltip, createStaticTooltip]);
 
-  // --- OSRM Rota Hesaplama Mantığı (TEMİZ) ---
-  // Çoklu durak rota hesaplama fonksiyonu
-  const calculateMultiStopRoute = useCallback(async (points, profile) => {
-    if (!points || points.length < 2) {
-      if (notify) notify("Uyarı", "Rota hesaplamak için en az 2 durak eklemelisiniz.", "info");
-      return;
-    }
-    setIsCalculating(true);
-    try {
-      // Tüm durakları OSRM formatına çevir: "lon,lat;lon,lat;..."
-      const waypointStr = points.map(p => `${p[0]},${p[1]}`).join(';');
-      let url;
-      let response;
 
-      if (profile === 'driving') {
-        url = `http://localhost:5000/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
-        try {
-          response = await osrmAxios.get(url);
-        } catch (e) {
-          console.warn('Yerel OSRM kapalı, genel sunucuya geçiliyor...');
-          url = `https://router.project-osrm.org/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
-          response = await osrmAxios.get(url);
-        }
-      } else if (profile === 'foot') {
-        url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
-        response = await osrmAxios.get(url);
-      } else if (profile === 'bike') {
-        url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
-        response = await osrmAxios.get(url);
-      }
+  useEffect(() => {
+    if (!map || !editingRouteId) return;
 
-      if (response && response.data && response.data.code === 'Ok') {
-        const routeGeoJSON = response.data.routes[0].geometry;
-        const distance = (response.data.routes[0].distance / 1000).toFixed(2);
-        const duration = Math.round(response.data.routes[0].duration / 60);
+    const addStopDraw = new Draw({
+      type: 'Point',
+      style: new Style({
+        image: new Circle({ radius: 8, fill: new Fill({ color: '#10b981' }), stroke: new Stroke({ color: 'white', width: 2 }) })
+      })
+    });
 
-        const format = new GeoJSON();
-        const routeFeature = format.readFeature(routeGeoJSON, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: 'EPSG:3857'
-        });
-
-        // Durak noktalarını sakla, rota çizgisini ekle
-        const waypointFeatures = routingSourceRef.current.getFeatures().filter(f => f.get('isWaypoint'));
-        routingSourceRef.current.clear();
-        waypointFeatures.forEach(f => routingSourceRef.current.addFeature(f));
-        routeFeature.set('isRouteLine', true);
-        routingSourceRef.current.addFeature(routeFeature);
-
-        setCurrentRouteData({ routeGeoJSON, distance, duration });
-      }
-    } catch (error) {
-      console.error("OSRM Hatası:", error);
-      if (notify) notify("Hata", "Rota hesaplanamadı. OSRM sunucusu kapalı olabilir.", "info");
-    } finally {
-      setIsCalculating(false);
-    }
-  }, [notify]);
-
-  // Rota Sıralamasını Optimize Et (OSRM Trip API)
-  const optimizeRoute = useCallback(async () => {
-    if (routingPoints.length < 3) {
-      if (notify) notify("Bilgi", "Optimizasyon için en az 3 durak gereklidir.", "info");
-      return;
-    }
-    
-    setIsCalculating(true);
-    try {
-      const waypointStr = routingPoints.map(p => `${p[0]},${p[1]}`).join(';');
-      // Trip API noktaları en verimli sırada gezmek için kullanılır
-      const url = `https://router.project-osrm.org/trip/v1/${routeProfile}/${waypointStr}?overview=full&geometries=geojson&source=first&destination=last`;
+    addStopDraw.on('drawend', async (evt) => {
+      const coords = transform(evt.feature.getGeometry().getCoordinates(), 'EPSG:3857', 'EPSG:4326');
       
-      const response = await osrmAxios.get(url);
-      
-      if (response && response.data && response.data.code === 'Ok') {
-        const trip = response.data.trips[0];
-        const waypoints = response.data.waypoints; // Optimize edilmiş sıralama bilgisi
-        
-        // Waypoints'i orijinal indexlerine göre sırala (OSRM trip waypoint objesinde 'waypoint_index' var)
-        const optimizedIndices = waypoints
-          .sort((a, b) => a.waypoint_index - b.waypoint_index)
-          .map(w => w.location_index);
+      try {
+        const routeData = await routeService.getById(editingRouteId);
+        if (routeData) {
+          let waypoints = JSON.parse(routeData.waypoints || '[]');
+          waypoints.push(coords);
           
-        const optimizedPoints = optimizedIndices.map(idx => routingPoints[idx]);
-        
-        setRoutingPoints(optimizedPoints);
-        
-        const routeGeoJSON = trip.geometry;
-        const distance = (trip.distance / 1000).toFixed(2);
-        const duration = Math.round(trip.duration / 60);
-
-        const format = new GeoJSON();
-        const routeFeature = format.readFeature(routeGeoJSON, {
-          dataProjection: 'EPSG:4326',
-          featureProjection: 'EPSG:3857'
-        });
-
-        // Görseli güncelle
-        const waypointFeatures = routingSourceRef.current.getFeatures()
-          .filter(f => f.get('isWaypoint'))
-          .sort((a, b) => a.get('waypointIndex') - b.get('waypointIndex'));
-          
-        routingSourceRef.current.clear();
-        
-        // Noktaları yeni sıraya göre yeniden ekle ve etiketle
-        optimizedPoints.forEach((pt, i) => {
-          const f = new Feature({
-            geometry: new Point(fromLonLat(pt)),
-            isWaypoint: true,
-            waypointIndex: i + 1
+          await routeService.update(editingRouteId, {
+            ...routeData,
+            waypoints: JSON.stringify(waypoints)
           });
-          f.setStyle(getRouteStopStyle(i, optimizedPoints.length, '#f59e0b'));
-          routingSourceRef.current.addFeature(f);
-        });
-        
-        routeFeature.set('isRouteLine', true);
-        routingSourceRef.current.addFeature(routeFeature);
-        
-        setCurrentRouteData({ routeGeoJSON, distance, duration });
-        if (notify) notify("Başarılı", "Durak sıralaması optimize edildi.", "info");
+          
+          if (refreshRoutes) refreshRoutes();
+          notify("Başarılı", "Yeni durak güzergaha eklendi.", "toast");
+        }
+      } catch (e) {
+        console.error("Durak ekleme hatası:", e);
       }
-    } catch (error) {
-      console.error("Optimizasyon Hatası:", error);
-      if (notify) notify("Hata", "Optimizasyon işlemi başarısız oldu.", "info");
-    } finally {
-      setIsCalculating(false);
-    }
-  }, [routingPoints, routeProfile, notify]);
+    });
+
+    map.addInteraction(addStopDraw);
+    return () => map.removeInteraction(addStopDraw);
+  }, [map, editingRouteId, refreshRoutes]);
 
   // Rota modunu temizle
   const clearRoutingState = useCallback(() => {
@@ -1167,6 +1356,125 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <div ref={mapElement} style={{ width: '100%', height: '100%' }} />
       <div style={{ position: 'absolute', top: 0, left: 0, zIndex: 1000, pointerEvents: 'none', width: '100%', height: '100%' }}>
+        {/* Güzergah Düzenleme Modu Göstergesi */}
+        {editingRouteId && (
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(15, 23, 42, 0.95)',
+            padding: '12px 25px',
+            borderRadius: '16px',
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '20px',
+            border: '1px solid rgba(16, 185, 129, 0.6)',
+            backdropFilter: 'blur(12px)',
+            boxShadow: '0 15px 35px rgba(0,0,0,0.4)',
+            pointerEvents: 'auto'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ 
+                width: '12px', 
+                height: '12px', 
+                background: '#10b981', 
+                borderRadius: '50%',
+                boxShadow: '0 0 10px #10b981'
+              }} />
+              <span style={{ color: 'white', fontWeight: '700', fontSize: '0.95rem' }}>Durak Ekleme Modu Aktif</span>
+            </div>
+            <button 
+              onClick={async () => {
+                // GERÇEK İPTAL: Orijinal waypoints'e geri dön
+                try {
+                  const routeData = await routeService.getById(editingRouteId);
+                  if (routeData && originalWaypointsRef.current !== null) {
+                    await routeService.update(editingRouteId, {
+                      ...routeData,
+                      waypoints: originalWaypointsRef.current
+                    });
+                  }
+                } catch (e) { console.error("Geri alma hatası:", e); }
+                
+                setEditingRouteId(null);
+                if (refreshRoutes) refreshRoutes();
+                notify("Bilgi", "Değişiklikler iptal edildi.", "toast");
+              }}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: '#94a3b8',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                padding: '8px 20px',
+                borderRadius: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; e.currentTarget.style.color = '#ef4444'; }}
+              onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'; e.currentTarget.style.color = '#94a3b8'; }}
+            >
+              İptal Et
+            </button>
+            <button 
+              onClick={async () => {
+                setIsCalculating(true);
+                try {
+                  const routeData = await routeService.getById(editingRouteId);
+                  if (routeData) {
+                    const waypoints = JSON.parse(routeData.waypoints || '[]');
+                    if (waypoints.length >= 2) {
+                      const osrmData = await fetchRouteData(waypoints, routeProfile);
+                      if (osrmData) {
+                        const featureId = `route-${editingRouteId}`;
+                        const feature = vectorSourceRef.current.getFeatureById(featureId);
+                        if (feature) {
+                          const newGeom = format.readGeometry(osrmData.routeGeoJSON, {
+                            dataProjection: 'EPSG:4326',
+                            featureProjection: 'EPSG:3857'
+                          });
+                          feature.setGeometry(newGeom);
+                        }
+
+                        await routeService.update(editingRouteId, {
+                          ...routeData,
+                          geoloc: osrmData.routeGeoJSON,
+                          distance: osrmData.distance,
+                          duration: osrmData.duration
+                        });
+                      }
+                    }
+                  }
+                } catch (e) {
+                  console.error("Rota güncelleme hatası:", e);
+                  notify("Hata", "Rota geometrisi güncellenemedi.", "info");
+                } finally {
+                  setIsCalculating(false);
+                  setEditingRouteId(null);
+                  if (refreshRoutes) refreshRoutes();
+                  notify("Başarılı", "Güzergah ve yol çizgisi güncellendi.", "toast");
+                }
+              }}
+              style={{
+                background: '#10b981',
+                color: 'white',
+                border: 'none',
+                padding: '8px 20px',
+                borderRadius: '10px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+              }}
+              onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+              onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}
+            >
+              {isCalculating ? 'Hesaplanıyor...' : 'Düzenlemeyi Bitir'}
+            </button>
+          </div>
+        )}
+
         {measureMode && (
           <button type="button" className="measure-clear-btn" style={{ pointerEvents: 'auto' }} onClick={clearMeasurements}>
             🗑 Temizle
@@ -1242,7 +1550,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
               <button
                 disabled={routingPoints.length < 2 || isCalculating}
-                onClick={() => calculateMultiStopRoute(routingPoints, routeProfile)}
+                onClick={() => fetchRouteData(routingPoints, routeProfile)}
                 style={{ flex: 2, background: routingPoints.length >= 2 ? '#3b82f6' : 'rgba(255,255,255,0.05)', color: routingPoints.length >= 2 ? 'white' : '#475569', border: 'none', padding: '9px 16px', borderRadius: '10px', cursor: routingPoints.length >= 2 ? 'pointer' : 'not-allowed', fontWeight: '700', fontSize: '0.9rem', transition: 'all 0.2s' }}
               >{isCalculating ? '⏳ Hesaplanıyor...' : 'Rotayı Hesapla'}</button>
               <button
@@ -1275,26 +1583,6 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '15px' }}>
               <span>Mesafe: {currentRouteData.distance} km</span>
               <span>Süre: {formatDuration(currentRouteData.duration)}</span>
-              {routingPoints.length > 2 && (
-                <button 
-                  onClick={optimizeRoute}
-                  style={{ 
-                    background: 'rgba(16, 185, 129, 0.15)', 
-                    color: '#34d399', 
-                    border: '1px solid rgba(16, 185, 129, 0.3)',
-                    padding: '4px 10px',
-                    borderRadius: '8px',
-                    fontSize: '0.75rem',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseOver={(e) => { e.target.style.background = '#10b981'; e.target.style.color = 'white'; }}
-                  onMouseOut={(e) => { e.target.style.background = 'rgba(16, 185, 129, 0.15)'; e.target.style.color = '#34d399'; }}
-                >
-                  ⚡ Sıralamayı Optimize Et
-                </button>
-              )}
             </div>
             <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
               <button
@@ -1349,7 +1637,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       <div ref={popupElement} className="ol-popup-wrapper">
         {/* Durak Popup'ı */}
         {selectedStop && !selectedFeature?.get('name') && (
-          <div className="ol-popup" style={{ minWidth: '220px' }}>
+          <div className="ol-popup" style={{ minWidth: '240px' }}>
             <button className="ol-popup-closer" onClick={() => {
               overlayRef.current.setPosition(undefined);
               setSelectedStop(null);
@@ -1466,14 +1754,127 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                   <button className="edit-icon-btn" onClick={handleEdit}>✎</button>
                 </div>
                 <p>Tip: {selectedFeature.getGeometry().getType()}</p>
-                <div style={{ display: 'flex', gap: '15px' }}>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '15px', alignItems: 'center', justifyContent: 'flex-start' }}>
                   <button
                     className={`detail-btn ${showDetail ? 'active' : ''}`}
+                    style={{ 
+                      flex: '1 1 auto', 
+                      height: '40px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      borderRadius: '10px',
+                      fontWeight: '700',
+                      fontSize: '0.85rem',
+                      padding: '0 15px',
+                      margin: 0,
+                      cursor: 'pointer',
+                      border: 'none',
+                      whiteSpace: 'nowrap'
+                    }}
                     onClick={() => setShowDetail(!showDetail)}
                   >
                     {showDetail ? '◀ Kapat' : 'Detay ▶'}
                   </button>
-                  <button className="delete-btn" onClick={handleDelete}>Sil</button>
+
+                  {(selectedFeature.get('itemType') === 'route' || selectedFeature.get('itemType') === 'route-stop') && (
+                    <button 
+                      className="modern-popup-btn"
+                      style={{ 
+                        width: '40px', 
+                        height: '40px', 
+                        minWidth: '40px',
+                        background: 'rgba(255,255,255,0.05)', 
+                        color: '#94a3b8', 
+                        border: '1px solid rgba(255,255,255,0.1)', 
+                        borderRadius: '10px', 
+                        margin: 0,
+                        padding: 0,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s'
+                      }}
+                      title="Gizle"
+                      onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'white'; }}
+                      onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#94a3b8'; }}
+                      onClick={() => {
+                        const isStop = selectedFeature.get('itemType') === 'route-stop';
+                        const routeId = isStop ? parseInt(selectedFeature.get('parentRouteId')?.replace('route-', '')) : selectedFeature.get('realId');
+                        
+                        if (routeId && toggleRouteVisibility) {
+                          toggleRouteVisibility(routeId);
+                          overlayRef.current.setPosition(undefined);
+                          setSelectedFeature(null);
+                          setShowDetail(false);
+                        }
+                      }}
+                    >
+                      <Eye size={18} />
+                    </button>
+                  )}
+
+                  {(selectedFeature.get('itemType') === 'route' || selectedFeature.get('itemType') === 'route-stop') && (
+                    <button 
+                      className="modern-popup-btn"
+                      style={{ 
+                        width: '40px', 
+                        height: '40px', 
+                        minWidth: '40px',
+                        background: 'rgba(16, 185, 129, 0.1)', 
+                        color: '#10b981', 
+                        border: '1px solid rgba(16, 185, 129, 0.2)', 
+                        borderRadius: '10px', 
+                        margin: 0,
+                        padding: 0,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s'
+                      }}
+                      title="Durak Ekle"
+                      onMouseOver={(e) => { e.currentTarget.style.background = '#10b981'; e.currentTarget.style.color = 'white'; }}
+                      onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)'; e.currentTarget.style.color = '#10b981'; }}
+                      onClick={async () => {
+                        try {
+                          const isStop = selectedFeature.get('itemType') === 'route-stop';
+                          const realId = isStop ? parseInt(selectedFeature.get('parentRouteId')?.replace('route-', '')) : selectedFeature.get('realId');
+                          
+                          setEditingRouteId(realId);
+                          overlayRef.current.setPosition(undefined);
+                          setSelectedFeature(null);
+                        } catch (err) {
+                          console.error("Durak ekleme hatası:", err);
+                          notify("Hata", "Durak eklenirken bir sorun oluştu.", "info");
+                        }
+                      }}
+                    >
+                      <PlusCircle size={18} />
+                    </button>
+                  )}
+
+
+                  <button 
+                    className="delete-btn" 
+                    style={{ 
+                      width: '40px', 
+                      height: '40px', 
+                      minWidth: '40px',
+                      borderRadius: '10px', 
+                      margin: 0,
+                      padding: 0,
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      border: 'none'
+                    }} 
+                    onClick={handleDelete}
+                  >
+                    <Trash2 size={18} />
+                  </button>
                 </div>
               </div>
             </div>
@@ -1518,17 +1919,27 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                             onClick={async () => {
                               try {
                                 const realId = selectedFeature.get('realId');
+                                
+                                // ANLIK GÜNCELLEME: Haritadaki feature'ı hemen güncelle
+                                const newGeom = format.readGeometry(selectedRouteData.routeGeoJSON, {
+                                  dataProjection: 'EPSG:4326',
+                                  featureProjection: 'EPSG:3857'
+                                });
+                                selectedFeature.setGeometry(newGeom);
+
                                 await routeService.update(realId, {
                                   id: realId,
                                   name: selectedFeature.get('name'),
                                   geometryType: "LineString",
                                   geoloc: selectedRouteData.routeGeoJSON,
-                                  Waypoints: JSON.stringify(selectedWaypoints)
+                                  waypoints: JSON.stringify(selectedWaypoints),
+                                  distance: selectedRouteData.distance,
+                                  duration: selectedRouteData.duration
                                 });
                                 setOriginalRouteGeoJSON(selectedRouteData.routeGeoJSON);
                                 activeRouteOriginalGeoJSONRef.current = selectedRouteData.routeGeoJSON;
                                 if (refreshRoutes) refreshRoutes();
-                                notify("Başarılı", "Güzergah başarıyla güncellendi.", "info");
+                                notify("Başarılı", "Güzergah başarıyla güncellendi.", "toast");
                               } catch (e) {
                                 notify("Hata", "Güzergah güncellenemedi.", "info");
                               }

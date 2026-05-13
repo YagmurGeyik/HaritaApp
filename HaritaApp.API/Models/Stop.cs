@@ -10,6 +10,7 @@ namespace HaritaApp.API.Models
         public double Longitude { get; set; }
         public double Latitude { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? UpdatedAt { get; set; }
         public int UserId { get; set; }
         public AppUser? User { get; set; }
 

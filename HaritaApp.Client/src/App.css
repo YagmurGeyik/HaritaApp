@@ -597,6 +597,51 @@
   }
 }
 
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  top: 85px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  background: rgba(15, 23, 42, 0.9);
+  backdrop-filter: blur(12px);
+  color: white;
+  padding: 12px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: auto;
+  min-width: 250px;
+}
+
+.toast-success {
+  border-left: 4px solid #10b981;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .detail-panel h4 {
   margin: 0 0 1rem 0;
   color: #818cf8;
@@ -1176,4 +1221,153 @@
 
 .section-content {
   margin-top: 0.5rem;
+}
+
+/* ===================== KATMANLAR FLOATING WIDGET ===================== */
+
+.katmanlar-widget {
+  position: absolute;
+  bottom: 24px;
+  left: 16px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* Ana buton */
+.katmanlar-toggle-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 72px;
+  height: 72px;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(14px);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.katmanlar-toggle-btn:hover {
+  border-color: #3b82f6;
+  background: rgba(30, 41, 70, 0.95);
+  box-shadow: 0 8px 28px rgba(59, 130, 246, 0.3);
+  transform: translateY(-2px);
+}
+
+.katmanlar-toggle-btn.open {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.15);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2), 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Seçenek kartları (açıldığında üstte çıkar) */
+.katmanlar-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeSlideUp 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.katmanlar-option-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 72px;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(14px);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 6px 0 8px 0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.katmanlar-option-btn:hover {
+  border-color: #60a5fa;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(59, 130, 246, 0.25);
+}
+
+.katmanlar-option-btn.active {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25), 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* Küçük önizleme kareleri */
+.katmanlar-option-preview {
+  width: 50px;
+  height: 38px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+}
+
+.osm-preview {
+  background-color: #f2efe9;
+  background-image:
+    /* Su/nehir - mavi */
+    linear-gradient(to bottom, transparent 30%, #b3d9f0 30%, #b3d9f0 36%, transparent 36%),
+    /* Ana yol - gri */
+    linear-gradient(to right, transparent 20%, #d4cfc7 20%, #d4cfc7 24%, transparent 24%),
+    linear-gradient(to right, transparent 60%, #d4cfc7 60%, #d4cfc7 64%, transparent 64%),
+    /* Küçük yol - beyaz */
+    linear-gradient(to bottom, transparent 55%, #ffffff 55%, #ffffff 58%, transparent 58%),
+    /* Park - yeşil */
+    radial-gradient(ellipse 35% 25% at 75% 70%, #c8e6c0 0%, transparent 100%),
+    radial-gradient(ellipse 20% 15% at 20% 20%, #d4eacc 0%, transparent 100%);
+}
+
+.satellite-preview {
+  background-color: #5a5e56;
+  background-image:
+    /* Diyagonal yol şeritleri - koyu gri asfalt */
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 4px,
+      rgba(40, 42, 38, 0.7) 4px,
+      rgba(40, 42, 38, 0.7) 9px
+    ),
+    /* İkinci yön - çapraz şerit katmanı */
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 10px,
+      rgba(80, 84, 76, 0.4) 10px,
+      rgba(80, 84, 76, 0.4) 13px
+    ),
+    /* Zemin tonu varyasyonu */
+    linear-gradient(135deg, #606460 0%, #4e524a 40%, #58625a 70%, #484c44 100%);
 }

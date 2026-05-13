@@ -1,12 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Trash2, GripVertical, Check, X, Edit2 } from 'lucide-react';
 import { routeStopService } from '../services/routeStopService';
 import { stopService } from '../services/stopService';
+import { routeService } from '../services/routeService';
+import axios from 'axios';
+
+// OSRM için özel axios instance
+const osrmAxios = axios.create();
+osrmAxios.interceptors.request.use(config => {
+  if (config.headers.Authorization) delete config.headers.Authorization;
+  return config;
+});
 
 const RouteStopEditor = ({ route, allStops, notify, onUpdate }) => {
   const [routeStops, setRouteStops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [draggedIdx, setDraggedIdx] = useState(null);
+  const [dragOverIdx, setDragOverIdx] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [editingStopId, setEditingStopId] = useState(null);
   const [editingName, setEditingName] = useState('');
 
@@ -26,18 +37,62 @@ const RouteStopEditor = ({ route, allStops, notify, onUpdate }) => {
     }
   };
 
+  // Rotayı durak listesine göre yeniden hesapla ve kaydet
+  const recalculateAndSaveRoute = async (currentStops) => {
+    if (currentStops.length < 2) {
+      // 2'den az durak kalırsa rotayı boş bir LineString yapabiliriz veya uyarı verebiliriz
+      return;
+    }
+
+    try {
+      const points = currentStops.map(s => [s.longitude, s.latitude]);
+      const waypointStr = points.map(p => `${p[0]},${p[1]}`).join(';');
+      
+      let url = `http://localhost:5000/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+      let response;
+      try {
+        response = await osrmAxios.get(url);
+      } catch (e) {
+        url = `https://router.project-osrm.org/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+        response = await osrmAxios.get(url);
+      }
+
+      if (response && response.data && response.data.code === 'Ok') {
+        const routeGeoJSON = response.data.routes[0].geometry;
+        
+        // Ana rotayı veritabanında güncelle
+        await routeService.update(route.id, {
+          id: route.id,
+          name: route.name,
+          geoloc: routeGeoJSON,
+          waypoints: JSON.stringify(points)
+        });
+        
+        if (onUpdate) onUpdate();
+      }
+    } catch (error) {
+      console.error("Rota güncellenirken hata:", error);
+    }
+  };
+
   const handleDragStart = (e, index) => {
     setDraggedIdx(index);
     e.dataTransfer.effectAllowed = 'move';
+    // Sürükleme sırasında hayalet görüntüyü özelleştirmek isterseniz buraya eklenebilir
   };
 
   const handleDragOver = (e, index) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIdx !== index) setDragOverIdx(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIdx(null);
   };
 
   const handleDrop = async (e, targetIdx) => {
     e.preventDefault();
+    setDragOverIdx(null);
     if (draggedIdx === null || draggedIdx === targetIdx) return;
 
     const newStops = [...routeStops];
@@ -47,22 +102,32 @@ const RouteStopEditor = ({ route, allStops, notify, onUpdate }) => {
     const updatedStops = newStops.map((s, idx) => ({ ...s, orderIndex: idx }));
     setRouteStops(updatedStops);
     setDraggedIdx(null);
+    setIsSaving(true);
 
     try {
       const reorderPayload = updatedStops.map(s => ({ stopId: s.stopId, orderIndex: s.orderIndex }));
       await routeStopService.reorderStops(route.id, reorderPayload);
-      if (onUpdate) onUpdate();
+      
+      // ANLIK GÜNCELLEME: Sıralama kaydolduktan sonra rotayı yeniden hesapla
+      await recalculateAndSaveRoute(updatedStops);
     } catch (err) {
       notify("Hata", "Sıralama kaydedilemedi.", "info");
       fetchRouteStops();
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleRemoveStop = async (stopId) => {
     try {
       await routeStopService.removeStopFromRoute(route.id, stopId);
-      await fetchRouteStops();
-      if (onUpdate) onUpdate();
+      
+      // Silme sonrası listeyi yerel olarak güncelle
+      const updatedStops = routeStops.filter(s => s.stopId !== stopId);
+      setRouteStops(updatedStops.map((s, idx) => ({ ...s, orderIndex: idx })));
+      
+      // ANLIK GÜNCELLEME: Durak silindikten sonra rotayı yeniden hesapla
+      await recalculateAndSaveRoute(updatedStops);
     } catch (err) {
       notify("Hata", "Durak kaldırılamadı.", "info");
     }
@@ -103,7 +168,10 @@ const RouteStopEditor = ({ route, allStops, notify, onUpdate }) => {
 
   return (
     <div style={{ marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '10px' }}>
-      <h5 style={{ margin: '0 0 8px 0', color: '#e2e8f0', fontSize: '0.85rem' }}>Güzergah Durakları</h5>
+      <h5 style={{ margin: '0 0 8px 0', color: '#e2e8f0', fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between' }}>
+        Güzergah Durakları
+        {isSaving && <span style={{ color: '#f59e0b', fontSize: '0.7rem', fontWeight: 'normal' }}>Güncelleniyor...</span>}
+      </h5>
 
       {routeStops.length === 0 ? (
         <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Bu güzergahta durak yok.</div>
@@ -115,16 +183,22 @@ const RouteStopEditor = ({ route, allStops, notify, onUpdate }) => {
               draggable={editingStopId !== rs.stopId}
               onDragStart={(e) => handleDragStart(e, index)}
               onDragOver={(e) => handleDragOver(e, index)}
+              onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, index)}
               style={{
                 display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.03)',
                 padding: '6px', borderRadius: '6px', fontSize: '0.8rem',
                 border: editingStopId === rs.stopId
                   ? '1px solid rgba(59,130,246,0.5)'
-                  : '1px solid rgba(255,255,255,0.05)',
+                  : dragOverIdx === index 
+                    ? '1px solid #f59e0b' // Sürüklerken üzerine gelinen yer turuncu olsun
+                    : '1px solid rgba(255,255,255,0.05)',
                 opacity: draggedIdx === index ? 0.5 : 1,
-                cursor: editingStopId === rs.stopId ? 'default' : 'grab',
-                transition: 'border 0.15s'
+                cursor: (editingStopId === rs.stopId || isSaving) ? 'default' : 'grab',
+                transition: 'all 0.15s',
+                marginTop: dragOverIdx === index && draggedIdx > index ? '10px' : '0',
+                marginBottom: dragOverIdx === index && draggedIdx < index ? '10px' : '0',
+                boxShadow: dragOverIdx === index ? '0 0 10px rgba(245,158,11,0.2)' : 'none'
               }}
             >
               <GripVertical size={14} style={{ color: '#64748b', marginRight: '6px', flexShrink: 0 }} />

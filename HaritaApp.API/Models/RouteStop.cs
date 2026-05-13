@@ -12,5 +12,6 @@ namespace HaritaApp.API.Models
         public int StopId { get; set; }
         public Stop? Stop { get; set; }
         public int OrderIndex { get; set; } // 0-tabanlı sıra
+        public DateTime? UpdatedAt { get; set; }
     }
 }

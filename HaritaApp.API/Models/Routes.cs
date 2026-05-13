@@ -13,6 +13,7 @@ namespace HaritaApp.API.Models
         public string? Waypoints { get; set; } // Eski alan — geriye dönük uyumluluk
         public Geometry Geoloc { get; set; } = null!;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? UpdatedAt { get; set; }
         public int UserId { get; set; }
         public AppUser? User { get; set; }
 

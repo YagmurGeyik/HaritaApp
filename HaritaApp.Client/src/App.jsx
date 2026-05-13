@@ -4,7 +4,7 @@ import GeometryList from './components/GeometryList';
 import { geometryService } from './services/geometryService';
 import { routeService } from './services/routeService';
 import { stopService } from './services/stopService';
-import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon, Navigation } from 'lucide-react';
+import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon, Navigation, Layers } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import './App.css';
@@ -67,6 +67,7 @@ function AppContent() {
   const [stops, setStops] = useState([]);
   const [zoomTo, setZoomTo] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(false);
   const [baseLayer, setBaseLayer] = useState(localStorage.getItem('baseLayer') || 'osm');
   const [isEditMode, setIsEditMode] = useState(false);
   const [measureMode, setMeasureMode] = useState(null);
@@ -74,7 +75,7 @@ function AppContent() {
   const [hiddenRoutes, setHiddenRoutes] = useState([]);
 
   const toggleRouteVisibility = (routeId) => {
-    setHiddenRoutes(prev => 
+    setHiddenRoutes(prev =>
       prev.includes(routeId) ? prev.filter(id => id !== routeId) : [...prev, routeId]
     );
   };
@@ -87,9 +88,25 @@ function AppContent() {
     isOpen: false, title: '', message: '', type: 'info', defaultValue: '', onConfirm: null, onCancel: null
   });
 
+  // Toast State
+  const [toasts, setToasts] = useState([]);
+
+  const showToast = (message, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  };
+
   const closeModal = () => setModal(prev => ({ ...prev, isOpen: false }));
 
   const showModal = (title, message, type = 'info', onConfirm = null, defaultValue = '', onCancel = null) => {
+    if (type === 'toast') {
+      showToast(message, 'success');
+      return;
+    }
+
     const wrappedConfirm = async (val) => {
       if (onConfirm) await onConfirm(val);
       closeModal();
@@ -184,6 +201,15 @@ function AppContent() {
 
   return (
     <div className="app-container">
+      <div className="toast-container">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast toast-${t.type}`}>
+            <Info size={18} />
+            <span>{t.message}</span>
+          </div>
+        ))}
+      </div>
+
       <CustomModal
         isOpen={modal.isOpen}
         title={modal.title}
@@ -205,12 +231,6 @@ function AppContent() {
           </div>
         </div>
 
-        <div className="navbar-center">
-          <div className="layer-switcher">
-            <button className={`layer-btn ${baseLayer === 'osm' ? 'active' : ''}`} onClick={() => setBaseLayer('osm')}>Standart</button>
-            <button className={`layer-btn ${baseLayer === 'satellite' ? 'active' : ''}`} onClick={() => setBaseLayer('satellite')}>Uydu</button>
-          </div>
-        </div>
 
         <div className="navbar-buttons">
           <button
@@ -344,7 +364,70 @@ function AppContent() {
             setRoutingMode={setRoutingMode}
             notify={(t, m, tp, cb, dv, ccb) => showModal(t, m, tp, cb, dv, ccb)}
             hiddenRoutes={hiddenRoutes}
+            toggleRouteVisibility={toggleRouteVisibility}
           />
+
+          {/* Katmanlar Floating Paneli */}
+          <div className="katmanlar-widget">
+            {isLayerPanelOpen && (
+              <div className="katmanlar-options">
+                <button
+                  className={`katmanlar-option-btn ${baseLayer === 'osm' ? 'active' : ''}`}
+                  onClick={() => { setBaseLayer('osm'); setIsLayerPanelOpen(false); }}
+                >
+                  {/* Standart / OSM Harita Önizleme */}
+                  <svg className="katmanlar-option-preview" viewBox="0 0 50 38" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="50" height="38" fill="#f2efe9" />
+                    {/* Park alanları */}
+                    <ellipse cx="38" cy="28" rx="11" ry="8" fill="#c8e6c0" />
+                    <ellipse cx="9" cy="7" rx="8" ry="5" fill="#d4eacc" />
+                    {/* Nehir/su */}
+                    <path d="M0,16 Q12,14 25,17 Q38,20 50,17" stroke="#b3d9f0" strokeWidth="4" fill="none" />
+                    {/* Ana yollar */}
+                    <rect x="19" y="0" width="3.5" height="38" fill="#d4cfc7" />
+                    <rect x="0" y="22" width="50" height="2.5" fill="#d4cfc7" />
+                    {/* Küçük yollar */}
+                    <rect x="32" y="0" width="1.5" height="38" fill="#e8e4dc" />
+                    <rect x="0" y="10" width="50" height="1.5" fill="#e8e4dc" />
+                  </svg>
+                  <span>Standart</span>
+                </button>
+                <button
+                  className={`katmanlar-option-btn ${baseLayer === 'satellite' ? 'active' : ''}`}
+                  onClick={() => { setBaseLayer('satellite'); setIsLayerPanelOpen(false); }}
+                >
+                  {/* Uydu Önizleme - diyagonal yol dokusu */}
+                  <svg className="katmanlar-option-preview" viewBox="0 0 50 38" xmlns="http://www.w3.org/2000/svg">
+                    {/* Zemin katmanları */}
+                    <rect width="50" height="38" fill="#4a4d44" />
+                    <polygon points="0,0 50,0 50,12 0,22" fill="#3e4139" />
+                    <polygon points="0,22 50,12 50,38 0,38" fill="#424640" />
+                    {/* Diyagonal yol - geniş */}
+                    <polygon points="-2,30 6,18 52,2 52,10" fill="#696c61" />
+                    {/* Yol kenarı çizgileri */}
+                    <line x1="6" y1="18" x2="52" y2="2" stroke="#797c71" strokeWidth="0.7" opacity="0.9" />
+                    <line x1="-2" y1="30" x2="44" y2="14" stroke="#797c71" strokeWidth="0.5" opacity="0.6" />
+                    {/* Orta çizgi - beyaz kesik */}
+                    <line x1="2" y1="24" x2="52" y2="6" stroke="rgba(255,255,255,0.45)" strokeWidth="0.6" strokeDasharray="3,2" />
+                    {/* İkincil yol izi */}
+                    <line x1="0" y1="6" x2="50" y2="6" stroke="#505349" strokeWidth="2" opacity="0.5" />
+                    {/* Arazi dokusu gölge */}
+                    <rect x="0" y="28" width="30" height="10" fill="#3a3d35" opacity="0.4" />
+                  </svg>
+                  <span>Uydu</span>
+                </button>
+              </div>
+
+            )}
+            <button
+              className={`katmanlar-toggle-btn ${isLayerPanelOpen ? 'open' : ''}`}
+              onClick={() => setIsLayerPanelOpen(prev => !prev)}
+              title="Katmanlar"
+            >
+              <Layers size={22} />
+              <span>Katmanlar</span>
+            </button>
+          </div>
         </main>
       </div>
     </div>

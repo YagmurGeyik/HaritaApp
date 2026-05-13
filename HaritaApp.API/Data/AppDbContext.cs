@@ -1,5 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using HaritaApp.API.Models;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace HaritaApp.API.Data
 {
@@ -62,6 +65,33 @@ namespace HaritaApp.API.Data
             modelBuilder.Entity<AppUser>()
                 .HasIndex(u => u.Username)
                 .IsUnique();
+        }
+        public override int SaveChanges()
+        {
+            UpdateTimestamps();
+            return base.SaveChanges();
+        }
+
+        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            UpdateTimestamps();
+            return base.SaveChangesAsync(cancellationToken);
+        }
+
+        private void UpdateTimestamps()
+        {
+            var entries = ChangeTracker
+                .Entries()
+                .Where(e => (e.Entity is Routes || e.Entity is Stop || e.Entity is RouteStop || e.Entity is Geometries) &&
+                            (e.State == EntityState.Added || e.State == EntityState.Modified));
+
+            foreach (var entityEntry in entries)
+            {
+                if (entityEntry.Entity is Routes r) r.UpdatedAt = DateTime.UtcNow;
+                else if (entityEntry.Entity is Stop s) s.UpdatedAt = DateTime.UtcNow;
+                else if (entityEntry.Entity is RouteStop rs) rs.UpdatedAt = DateTime.UtcNow;
+                else if (entityEntry.Entity is Geometries g) g.UpdatedAt = DateTime.UtcNow;
+            }
         }
     }
 }

@@ -89,12 +89,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
     );
   };
 
-  const typeIcon = (type) => {
-    if (type === 'Point') return '📍';
-    if (type === 'LineString') return '📏';
-    if (type === 'Polygon') return '🔷';
-    return '📌';
-  };
+
 
   const renderItem = (item, type, onDelete) => {
     const isRoute = type === 'route';
@@ -115,7 +110,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
             }} />
           )}
           <div className="item-info" style={isRoute && hiddenRoutes.includes(item.id) ? { opacity: 0.5 } : {}}>
-            <div className="item-name">{typeIcon(item.geometryType)} {item.name}</div>
+            <div className="item-name">{item.name}</div>
             <div className="item-type">{item.geometryType}</div>
           </div>
           <div className="item-actions">
