@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using HaritaApp.API.Data;
+using HaritaApp.API.Hubs;
+using HaritaApp.API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +16,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
     });
 
+// SignalR ve Simülasyon Servisi
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<SimulationService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SimulationService>());
+
 // OpenAPI yapılandırması
 builder.Services.AddOpenApi();
 
@@ -23,9 +30,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowAll",
         b =>
         {
-            b.AllowAnyOrigin()
+            b.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
              .AllowAnyMethod()
-             .AllowAnyHeader();
+             .AllowAnyHeader()
+             .AllowCredentials();
         });
 });
 
@@ -70,6 +78,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<SimulationHub>("/simulationHub");
 
 // Veri Taşıma: Eski Waypoints JSON'larını Stops ve RouteStops tablolarına taşı
 using (var scope = app.Services.CreateScope())

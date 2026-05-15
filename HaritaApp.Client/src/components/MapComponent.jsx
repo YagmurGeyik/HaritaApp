@@ -27,7 +27,8 @@ import { routeService } from '../services/routeService';
 import { stopService } from '../services/stopService';
 import { getRouteColor } from '../utils/colorUtils';
 import axios from 'axios';
-import { Eye, Trash2, PlusCircle } from 'lucide-react';
+import { Eye, Trash2, PlusCircle, Play, Square, Pause, XCircle } from 'lucide-react';
+import { HubConnectionBuilder, HttpTransportType } from '@microsoft/signalr';
 
 // Başlangıç ve Bitiş ikonları (SVG)
 // Başlangıç: Yeşil iğne içinde beyaz ok
@@ -94,7 +95,7 @@ const getArrowStyles = (geometry, color) => {
 const getRouteStyle = (feature) => {
   const isEditing = feature.get('isEditing');
   let routeColor = isEditing ? '#f59e0b' : feature.get('routeColor');
-  
+
   // Eğer routeColor bir şekilde kaybolmuşsa ve düzenlemede değilsek ID üzerinden tekrar hesapla
   if (!routeColor) {
     const realId = feature.get('realId');
@@ -122,7 +123,7 @@ osrmAxios.interceptors.request.use(config => {
 });
 
 
-const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, refreshRoutes, zoomTo, baseLayer, notify, isEditMode, setIsEditMode, measureMode, setMeasureMode, routingMode, setRoutingMode, hiddenRoutes = [], toggleRouteVisibility }) => {
+const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, refreshRoutes, zoomTo, baseLayer, notify, isEditMode, setIsEditMode, measureMode, setMeasureMode, routingMode, setRoutingMode, hiddenRoutes = [], toggleRouteVisibility, activeSimulations, setActiveSimulations }) => {
 
   const mapElement = useRef(null);
   const [map, setMap] = useState(null);
@@ -151,6 +152,8 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
   const stopTooltipRef = useRef(null);
   const stopTooltipOverlayRef = useRef(null);
   const modifyTimerRef = useRef(null);
+  const simulationSourceRef = useRef(new VectorSource());
+  const activeCarsRef = useRef({});
 
   const [routingPoints, setRoutingPoints] = useState([]);
   const [routeProfile, setRouteProfile] = useState('driving');
@@ -184,6 +187,20 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
   useEffect(() => { measureModeRef.current = measureMode; }, [measureMode]);
   useEffect(() => { routingModeRef.current = routingMode; }, [routingMode]);
   const [currentRouteData, setCurrentRouteData] = useState(null);
+
+  // Simülasyon UI'dan durdurulduğunda (activeSimulations state'inden silindiğinde) haritadan da arabayı kaldır
+  useEffect(() => {
+    Object.keys(activeCarsRef.current).forEach(routeIdStr => {
+      const routeId = parseInt(routeIdStr, 10);
+      if (!activeSimulations.find(s => s.id === routeId)) {
+        const car = activeCarsRef.current[routeId];
+        if (car && simulationSourceRef.current) {
+          simulationSourceRef.current.removeFeature(car.feature);
+          delete activeCarsRef.current[routeId];
+        }
+      }
+    });
+  }, [activeSimulations]);
 
   const [selectedFeature, setSelectedFeature] = useState(null);
   const [selectedStop, setSelectedStop] = useState(null); // { stopId, name, longitude, latitude }
@@ -241,10 +258,10 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
           response = await osrmAxios.get(url);
         }
       } else if (profile === 'foot') {
-        url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+        url = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${waypointStr}?overview=full&geometries=geojson`;
         response = await osrmAxios.get(url);
       } else if (profile === 'bike') {
-        url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+        url = `https://routing.openstreetmap.de/routed-bike/route/v1/bicycle/${waypointStr}?overview=full&geometries=geojson`;
         response = await osrmAxios.get(url);
       }
 
@@ -291,7 +308,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     map.addOverlay(overlay);
   }, []);
 
-  const createStaticTooltip = useCallback((map, text, position) => {
+  const createStaticTooltip = useCallback((map, text, position, feature) => {
     if (!map) return;
     const el = document.createElement('div');
     el.className = 'measure-tooltip measure-tooltip-static';
@@ -300,6 +317,24 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     map.addOverlay(overlay);
     overlay.setPosition(position);
     staticTooltipsRef.current.push(overlay);
+
+    if (feature) {
+      feature.set('measurementOverlay', overlay);
+      feature.getGeometry().on('change', (evt) => {
+        const geom = evt.target;
+        let output = '';
+        let coord;
+        if (geom.getType() === 'Polygon') {
+          output = `📐 ` + (getArea(geom) >= 1000000 ? `${(getArea(geom) / 1000000).toFixed(3)} km²` : `${Math.round(getArea(geom))} m²`);
+          coord = geom.getInteriorPoint().getCoordinates();
+        } else {
+          output = `📏 ` + (getLength(geom) >= 1000 ? `${(getLength(geom) / 1000).toFixed(2)} km` : `${Math.round(getLength(geom))} m`);
+          coord = geom.getLastCoordinate();
+        }
+        el.innerHTML = output;
+        overlay.setPosition(coord);
+      });
+    }
   }, []);
 
   const clearMeasurements = useCallback(() => {
@@ -445,7 +480,10 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       }, { hitTolerance: 8 });
 
       if (stopFeature) {
-        const name = stopFeature.get('routeStopName') || stopFeature.get('routeName');
+        let name = stopFeature.get('routeStopName') || stopFeature.get('routeName');
+        if (stopFeature.get('isStart')) name = `Başlangıç Noktası: ${name}`;
+        else if (stopFeature.get('isEnd')) name = `Bitiş Noktası: ${name}`;
+
         if (name) {
           stopTooltipEl.textContent = name;
           stopTooltipEl.style.display = 'block';
@@ -455,7 +493,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       } else {
         stopTooltipEl.style.display = 'none';
         stopTooltipOverlay.setPosition(undefined);
-        
+
         // Düzenleme modunda sürüklenebilir bir şeyin üzerinde değilsek crosshair'a dön
         if (isEditModeRef.current) {
           initialMap.getTargetElement().style.cursor = 'crosshair';
@@ -486,6 +524,146 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       zIndex: 1000
     });
     initialMap.addLayer(routingLayer);
+
+    const simulationLayer = new VectorLayer({
+      source: simulationSourceRef.current,
+      zIndex: 1100
+    });
+    initialMap.addLayer(simulationLayer);
+
+    const connection = new HubConnectionBuilder()
+      .withUrl("http://localhost:5031/simulationHub", {
+        skipNegotiation: true,
+        transport: HttpTransportType.WebSockets
+      })
+      .withAutomaticReconnect()
+      .build();
+
+    let isMounted = true;
+    let startPromise = null;
+
+    const startConnection = () => {
+      if (connection.state === 'Disconnected') {
+        startPromise = connection.start();
+        startPromise.then(() => {
+          if (isMounted) console.log("SignalR Connected.");
+        }).catch(err => {
+          if (isMounted) console.error("SignalR Connection Error: ", err);
+        });
+      }
+    };
+
+    startConnection();
+
+    connection.on("ReceiveCarLocation", (data) => {
+      const { routeId, progress } = data;
+      const now = Date.now();
+
+      setActiveSimulations(prev => {
+        if (!prev.find(s => s.id === routeId)) return [...prev, { id: routeId, isPaused: false }];
+        return prev;
+      });
+
+      let car = activeCarsRef.current[routeId];
+      if (!car) {
+        const routeFeature = vectorSourceRef.current?.getFeatureById(`route-${routeId}`);
+        if (!routeFeature) return;
+
+        // Arabanın her zaman tam başlangıç noktasından (0.0) doğmasını sağla
+        const initialCoord = routeFeature.getGeometry().getCoordinateAt(0);
+
+        const carFeature = new Feature({
+          geometry: new Point(initialCoord),
+        });
+        // Üstten görünüm araba SVG'si
+        const carSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200" width="30" height="60"><rect x="20" y="20" width="60" height="160" rx="15" fill="%233B82F6" stroke="%231D4ED8" stroke-width="4"/><rect x="25" y="45" width="50" height="30" rx="5" fill="%231E293B"/><rect x="25" y="110" width="50" height="40" rx="5" fill="%231E293B"/><rect x="25" y="20" width="12" height="6" fill="%23FBBF24"/><rect x="63" y="20" width="12" height="6" fill="%23FBBF24"/><rect x="25" y="174" width="15" height="6" fill="%23EF4444"/><rect x="60" y="174" width="15" height="6" fill="%23EF4444"/></svg>`;
+
+        carFeature.setStyle(new Style({
+          image: new Icon({
+            src: carSvg,
+            anchor: [0.5, 0.5],
+            rotateWithView: true
+          })
+        }));
+        simulationSourceRef.current.addFeature(carFeature);
+
+        car = {
+          routeId: routeId,
+          feature: carFeature,
+          startProgress: 0, // İlk animasyon 0'dan gelen progress'e doğru başlasın
+          endProgress: progress,
+          startTime: now,
+          endTime: now + 2000
+        };
+        activeCarsRef.current[routeId] = car;
+      } else {
+        car.startProgress = car.endProgress;
+        car.endProgress = progress;
+        car.startTime = now;
+        car.endTime = now + 2000;
+      }
+    });
+
+    connection.on("SimulationEnded", (routeId) => {
+      const car = activeCarsRef.current[routeId];
+      if (car) {
+        simulationSourceRef.current.removeFeature(car.feature);
+        delete activeCarsRef.current[routeId];
+      }
+      setActiveSimulations(prev => prev.filter(s => s.id !== routeId));
+      notify("Bilgi", "Varış noktasına ulaşıldı!", "toast");
+    });
+
+    let animationFrameId;
+    const animateCars = () => {
+      const now = Date.now();
+      let needsRender = false;
+
+      Object.values(activeCarsRef.current).forEach(car => {
+        const routeFeature = vectorSourceRef.current?.getFeatureById(`route-${car.routeId}`);
+        if (!routeFeature) return;
+
+        const routeGeom = routeFeature.getGeometry();
+
+        if (now <= car.endTime && car.startTime !== car.endTime) {
+          const p = (now - car.startTime) / (car.endTime - car.startTime);
+          const currentProgress = car.startProgress + (car.endProgress - car.startProgress) * p;
+
+          const currentCoord = routeGeom.getCoordinateAt(Math.min(1, currentProgress));
+          car.feature.getGeometry().setCoordinates(currentCoord);
+
+          // needsRender = true; // Sadece araba hareketi için map.render() yeterli olur
+
+          // Rotasyon hesaplama (Arabanın yönünü belirleme rotanın şekline göre)
+          if (currentProgress < 1) {
+            const nextProgress = Math.min(1, currentProgress + 0.005);
+            const nextCoord = routeGeom.getCoordinateAt(nextProgress);
+            const dx = nextCoord[0] - currentCoord[0];
+            const dy = nextCoord[1] - currentCoord[1];
+            if (dx !== 0 || dy !== 0) {
+              const rotation = Math.atan2(dx, dy); // OpenLayers saat yönünde radyan cinsinden döndürür
+              const style = car.feature.getStyle();
+              if (style && style.getImage()) {
+                style.getImage().setRotation(rotation);
+              }
+            }
+          }
+
+          needsRender = true;
+        } else if (now > car.endTime) {
+          const finalCoord = routeGeom.getCoordinateAt(car.endProgress);
+          car.feature.getGeometry().setCoordinates(finalCoord);
+        }
+      });
+
+      if (needsRender && initialMap) {
+        initialMap.render();
+      }
+
+      animationFrameId = requestAnimationFrame(animateCars);
+    };
+
+    animationFrameId = requestAnimationFrame(animateCars);
 
 
     initialMap.on('singleclick', (event) => {
@@ -530,6 +708,8 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             name: feature.get('routeStopName') || '',
             longitude: feature.get('longitude'),
             latitude: feature.get('latitude'),
+            isStart: feature.get('isStart'),
+            isEnd: feature.get('isEnd'),
             feature: feature
           };
           setSelectedStop(stopInfo);
@@ -573,21 +753,45 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     });
 
     return () => {
+      isMounted = false;
+      cancelAnimationFrame(animationFrameId);
+      if (connection) {
+        if (startPromise) {
+          startPromise.then(() => connection.stop()).catch(() => { });
+        } else {
+          connection.stop();
+        }
+      }
       initialMap.setTarget(null);
       setMap(null);
     };
   }, []); // Sadece bir kez mount edildiğinde çalışsın
 
   useEffect(() => {
-    if (!vectorSourceRef.current) return;
+    if (!vectorSourceRef.current || !map) return;
 
     const format = new GeoJSON();
+    // Her senkronizasyonda eski etiketleri temizle
+    staticTooltipsRef.current.forEach(o => map.removeOverlay(o));
+    staticTooltipsRef.current = [];
+
     const geoFeatures = (geometries || []).map(item => {
       const feature = format.readFeature(item.geoloc, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
       feature.setId(`geo-${item.id}`);
       feature.set('name', item.name);
       feature.set('itemType', 'geometry');
       feature.set('realId', item.id);
+
+      // Kayıtlı geometriler için tooltip oluştur
+      const type = feature.getGeometry().getType();
+      if (type === 'Polygon' || type === 'LineString') {
+        const info = getFeatureInfo(feature);
+        const text = type === 'Polygon' ? `📐 ${info.area}` : `📏 ${info.length}`;
+        const pos = type === 'Polygon' 
+          ? feature.getGeometry().getInteriorPoint().getCoordinates() 
+          : feature.getGeometry().getLastCoordinate();
+        createStaticTooltip(map, text, pos, feature);
+      }
       return feature;
     });
 
@@ -612,16 +816,20 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             const stopIds = item.stopIds || [];
             if (Array.isArray(points)) {
               points.forEach((pt, idx) => {
+                const stopName = stopNames[idx] || `Durak ${idx + 1}`;
+
                 const stopFeature = new Feature({
                   geometry: new Point(fromLonLat(pt)),
                   itemType: 'route-stop',
                   routeName: item.name,
-                  routeStopName: stopNames[idx] || `Durak ${idx + 1}`,
+                  routeStopName: stopName,
                   stopIndex: idx,
                   stopId: stopIds[idx] ?? null,
                   longitude: pt[0],
                   latitude: pt[1],
-                  routeId: item.id
+                  routeId: item.id,
+                  isStart: idx === 0,
+                  isEnd: idx === points.length - 1
                 });
                 stopFeature.setStyle(getRouteStopStyle(idx, points.length, routeColor));
                 features.push(stopFeature);
@@ -637,7 +845,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
 
     vectorSourceRef.current.clear();
     vectorSourceRef.current.addFeatures([...geoFeatures, ...routeFeatures]);
-  }, [geometries, routes, hiddenRoutes]); // Geometriler, rotalar veya gizli rotalar değiştiğinde tetiklensin
+  }, [geometries, routes, hiddenRoutes, map]); // Geometriler, rotalar veya gizli rotalar değiştiğinde tetiklensin
 
   useEffect(() => {
     if (!osmLayerRef.current || !satelliteLayerRef.current || !labelsLayerRef.current || !roadsLayerRef.current) return;
@@ -671,13 +879,13 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     if (modifyRef.current) map.removeInteraction(modifyRef.current);
     if (translateRef.current) map.removeInteraction(translateRef.current);
     if (routingSourceRef.current) routingSourceRef.current.clear();
-    
+
     // Tüm nesnelerin stillerini tazelemeye zorla ve stilleri sıfırla
     if (vectorSourceRef.current) {
       vectorSourceRef.current.getFeatures().forEach(feature => {
         if (feature.get('itemType') === 'route') {
           feature.set('isEditing', isEditMode); // Düzenleme moduna göre bayrağı set et
-          feature.setStyle(getRouteStyle); 
+          feature.setStyle(getRouteStyle);
         }
       });
       vectorSourceRef.current.changed();
@@ -697,7 +905,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
         return null; // Varsayılan stil kullanılsın
       };
 
-      const select = new Select({ 
+      const select = new Select({
         condition: click,
         hitTolerance: 10,
         style: selectStyle
@@ -737,7 +945,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       });
 
       // Modify: Tüm feature'ları doğrudan source üzerinden düzenle
-      const modify = new Modify({ 
+      const modify = new Modify({
         source: vectorSourceRef.current,
         pixelTolerance: 15 // Sürüklemeyi başlatmayı kolaylaştırır
       });
@@ -785,7 +993,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
           const id = feature.getId();
           if (!id) continue;
           const realId = feature.get('realId') || id;
-          
+
           if (feature.get('itemType') === 'route') continue; // Rota güncellenmesin
 
           // Durak sürükleme işlemi (isEditMode içinde)
@@ -794,7 +1002,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             const routeId = feature.get('routeId');
             const stopIndex = feature.get('stopIndex');
             const newCoord = transform(feature.getGeometry().getCoordinates(), 'EPSG:3857', 'EPSG:4326');
-            
+
             try {
               // 1. Durağı güncelle
               await stopService.update(stopId, {
@@ -821,7 +1029,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                     geoloc: result.routeGeoJSON,
                     waypoints: JSON.stringify(waypoints)
                   });
-                  
+
                   if (refreshRoutes) refreshRoutes();
                 }
               }
@@ -1009,7 +1217,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
         output = `📏 ` + (getLength(geom) >= 1000 ? `${(getLength(geom) / 1000).toFixed(2)} km` : `${Math.round(getLength(geom))} m`);
         coord = geom.getLastCoordinate();
       }
-      createStaticTooltip(map, output, coord);
+      createStaticTooltip(map, output, coord, feature);
       if (listenerRef.current) unByKey(listenerRef.current);
       if (measureTooltipOverlayRef.current) map.removeOverlay(measureTooltipOverlayRef.current);
       listenerRef.current = null;
@@ -1052,6 +1260,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             feature.set('name', finalName);
             vectorSourceRef.current.addFeature(feature);
             measureSourceRef.current.removeFeature(feature);
+            clearMeasurements();
             if (refreshData) await refreshData();
           } catch (error) {
             console.error("Kayıt hatası:", error);
@@ -1086,18 +1295,18 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
 
     addStopDraw.on('drawend', async (evt) => {
       const coords = transform(evt.feature.getGeometry().getCoordinates(), 'EPSG:3857', 'EPSG:4326');
-      
+
       try {
         const routeData = await routeService.getById(editingRouteId);
         if (routeData) {
           let waypoints = JSON.parse(routeData.waypoints || '[]');
           waypoints.push(coords);
-          
+
           await routeService.update(editingRouteId, {
             ...routeData,
             waypoints: JSON.stringify(waypoints)
           });
-          
+
           if (refreshRoutes) refreshRoutes();
           notify("Başarılı", "Yeni durak güzergaha eklendi.", "toast");
         }
@@ -1167,6 +1376,12 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
     if (!routingMode) clearRoutingState();
   }, [routingMode, clearRoutingState]);
 
+  useEffect(() => {
+    if (routingMode && routingPoints.length >= 2) {
+      fetchRouteData(routingPoints, routeProfile);
+    }
+  }, [routeProfile]); // Profil değiştiğinde otomatik hesapla
+
   // Kayıtlı Rota Seçildiğinde Profil Değişimi Hesaplaması
   useEffect(() => {
     const updateSelectedRoute = async () => {
@@ -1196,10 +1411,10 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             response = await osrmAxios.get(url);
           }
         } else if (selectedRouteProfile === 'foot') {
-          url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+          url = `https://routing.openstreetmap.de/routed-foot/route/v1/foot/${waypointStr}?overview=full&geometries=geojson`;
           response = await osrmAxios.get(url);
         } else if (selectedRouteProfile === 'bike') {
-          url = `https://routing.openstreetmap.de/routed-bike/route/v1/driving/${waypointStr}?overview=full&geometries=geojson`;
+          url = `https://routing.openstreetmap.de/routed-bike/route/v1/bicycle/${waypointStr}?overview=full&geometries=geojson`;
           response = await osrmAxios.get(url);
         }
 
@@ -1376,16 +1591,16 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             pointerEvents: 'auto'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ 
-                width: '12px', 
-                height: '12px', 
-                background: '#10b981', 
+              <div style={{
+                width: '12px',
+                height: '12px',
+                background: '#10b981',
                 borderRadius: '50%',
                 boxShadow: '0 0 10px #10b981'
               }} />
               <span style={{ color: 'white', fontWeight: '700', fontSize: '0.95rem' }}>Durak Ekleme Modu Aktif</span>
             </div>
-            <button 
+            <button
               onClick={async () => {
                 // GERÇEK İPTAL: Orijinal waypoints'e geri dön
                 try {
@@ -1397,7 +1612,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                     });
                   }
                 } catch (e) { console.error("Geri alma hatası:", e); }
-                
+
                 setEditingRouteId(null);
                 if (refreshRoutes) refreshRoutes();
                 notify("Bilgi", "Değişiklikler iptal edildi.", "toast");
@@ -1417,7 +1632,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             >
               İptal Et
             </button>
-            <button 
+            <button
               onClick={async () => {
                 setIsCalculating(true);
                 try {
@@ -1540,7 +1755,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                     setCurrentRouteData(null);
                     setRoutingPoints(prev => prev.slice(0, -1));
                   }}
-                  title="Son durağı sil"
+                  data-tooltip="Son durağı sil"
                   style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem', whiteSpace: 'nowrap' }}
                 >⌫ Geri Al</button>
               )}
@@ -1645,8 +1860,8 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             }}>✖</button>
             <div className="popup-details">
               <div className="popup-title" style={{ marginBottom: '12px' }}>
-                <span style={{ fontSize: '0.75rem', color: '#f59e0b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
-                  📍 Durak
+                <span style={{ fontSize: '0.75rem', color: selectedStop.isStart ? '#10b981' : (selectedStop.isEnd ? '#ef4444' : '#f59e0b'), fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  📍 {selectedStop.isStart ? "Başlangıç Noktası" : selectedStop.isEnd ? "Bitiş Noktası" : "Durak"}
                 </span>
               </div>
               <input
@@ -1682,8 +1897,12 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                 }}
                 placeholder="Durak ismi..."
                 style={{
-                  width: '100%', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)',
-                  borderRadius: '8px', padding: '8px 10px', color: 'white', fontSize: '0.9rem',
+                  width: '100%',
+                  background: 'rgba(255,255,255,0.07)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: '8px', padding: '8px 10px',
+                  color: 'white',
+                  fontSize: '0.9rem',
                   marginBottom: '10px', outline: 'none', boxSizing: 'border-box'
                 }}
               />
@@ -1717,6 +1936,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                   Kaydet
                 </button>
                 <button
+                  className="popup-cancel-btn"
                   onClick={() => { overlayRef.current.setPosition(undefined); setSelectedStop(null); setSelectedFeature(null); }}
                   style={{ flex: 1, background: 'rgba(255,255,255,0.05)', color: '#94a3b8', border: '1px solid rgba(255,255,255,0.1)', padding: '7px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem' }}
                 >
@@ -1757,11 +1977,11 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                 <div style={{ display: 'flex', gap: '8px', marginTop: '15px', alignItems: 'center', justifyContent: 'flex-start' }}>
                   <button
                     className={`detail-btn ${showDetail ? 'active' : ''}`}
-                    style={{ 
-                      flex: '1 1 auto', 
-                      height: '40px', 
-                      display: 'flex', 
-                      alignItems: 'center', 
+                    style={{
+                      flex: '1 1 auto',
+                      height: '40px',
+                      display: 'flex',
+                      alignItems: 'center',
                       justifyContent: 'center',
                       borderRadius: '10px',
                       fontWeight: '700',
@@ -1777,17 +1997,56 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                     {showDetail ? '◀ Kapat' : 'Detay ▶'}
                   </button>
 
+                  {selectedFeature.get('itemType') === 'route' && (
+                    <>
+                      <button
+                        className="modern-popup-btn"
+                        style={{
+                          width: '40px',
+                          height: '40px',
+                          minWidth: '40px',
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          color: '#10b981',
+                          border: '1px solid rgba(16, 185, 129, 0.2)',
+                          borderRadius: '10px',
+                          margin: 0,
+                          padding: 0,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s'
+                        }}
+                        data-tooltip="Simüle Et"
+                        onMouseOver={(e) => { e.currentTarget.style.background = '#10b981'; e.currentTarget.style.color = 'white'; }}
+                        onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)'; e.currentTarget.style.color = '#10b981'; }}
+                        onClick={async () => {
+                          const realId = selectedFeature.get('realId');
+                          try {
+                            await routeService.simulate(realId);
+                            notify("Başarılı", "Simülasyon başlatıldı.", "toast");
+                          } catch (error) {
+                            console.error("Simülasyon hatası:", error);
+                            notify("Hata", "Simülasyon başlatılamadı.", "info");
+                          }
+                        }}
+                      >
+                        <Play size={18} style={{ marginLeft: '2px' }} />
+                      </button>
+                    </>
+                  )}
+
                   {(selectedFeature.get('itemType') === 'route' || selectedFeature.get('itemType') === 'route-stop') && (
-                    <button 
+                    <button
                       className="modern-popup-btn"
-                      style={{ 
-                        width: '40px', 
-                        height: '40px', 
+                      style={{
+                        width: '40px',
+                        height: '40px',
                         minWidth: '40px',
-                        background: 'rgba(255,255,255,0.05)', 
-                        color: '#94a3b8', 
-                        border: '1px solid rgba(255,255,255,0.1)', 
-                        borderRadius: '10px', 
+                        background: 'rgba(255,255,255,0.05)',
+                        color: '#94a3b8',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '10px',
                         margin: 0,
                         padding: 0,
                         cursor: 'pointer',
@@ -1796,13 +2055,13 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                         justifyContent: 'center',
                         transition: 'all 0.2s'
                       }}
-                      title="Gizle"
+                      data-tooltip="Gizle"
                       onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'white'; }}
                       onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#94a3b8'; }}
                       onClick={() => {
                         const isStop = selectedFeature.get('itemType') === 'route-stop';
                         const routeId = isStop ? parseInt(selectedFeature.get('parentRouteId')?.replace('route-', '')) : selectedFeature.get('realId');
-                        
+
                         if (routeId && toggleRouteVisibility) {
                           toggleRouteVisibility(routeId);
                           overlayRef.current.setPosition(undefined);
@@ -1816,16 +2075,16 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                   )}
 
                   {(selectedFeature.get('itemType') === 'route' || selectedFeature.get('itemType') === 'route-stop') && (
-                    <button 
+                    <button
                       className="modern-popup-btn"
-                      style={{ 
-                        width: '40px', 
-                        height: '40px', 
+                      style={{
+                        width: '40px',
+                        height: '40px',
                         minWidth: '40px',
-                        background: 'rgba(16, 185, 129, 0.1)', 
-                        color: '#10b981', 
-                        border: '1px solid rgba(16, 185, 129, 0.2)', 
-                        borderRadius: '10px', 
+                        background: 'rgba(16, 185, 129, 0.1)',
+                        color: '#10b981',
+                        border: '1px solid rgba(16, 185, 129, 0.2)',
+                        borderRadius: '10px',
                         margin: 0,
                         padding: 0,
                         cursor: 'pointer',
@@ -1834,14 +2093,14 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                         justifyContent: 'center',
                         transition: 'all 0.2s'
                       }}
-                      title="Durak Ekle"
+                      data-tooltip="Durak Ekle"
                       onMouseOver={(e) => { e.currentTarget.style.background = '#10b981'; e.currentTarget.style.color = 'white'; }}
                       onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(16, 185, 129, 0.1)'; e.currentTarget.style.color = '#10b981'; }}
                       onClick={async () => {
                         try {
                           const isStop = selectedFeature.get('itemType') === 'route-stop';
                           const realId = isStop ? parseInt(selectedFeature.get('parentRouteId')?.replace('route-', '')) : selectedFeature.get('realId');
-                          
+
                           setEditingRouteId(realId);
                           overlayRef.current.setPosition(undefined);
                           setSelectedFeature(null);
@@ -1856,21 +2115,21 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                   )}
 
 
-                  <button 
-                    className="delete-btn" 
-                    style={{ 
-                      width: '40px', 
-                      height: '40px', 
+                  <button
+                    className="delete-btn"
+                    style={{
+                      width: '40px',
+                      height: '40px',
                       minWidth: '40px',
-                      borderRadius: '10px', 
+                      borderRadius: '10px',
                       margin: 0,
                       padding: 0,
-                      display: 'flex', 
-                      alignItems: 'center', 
+                      display: 'flex',
+                      alignItems: 'center',
                       justifyContent: 'center',
                       cursor: 'pointer',
                       border: 'none'
-                    }} 
+                    }}
                     onClick={handleDelete}
                   >
                     <Trash2 size={18} />
@@ -1919,7 +2178,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
                             onClick={async () => {
                               try {
                                 const realId = selectedFeature.get('realId');
-                                
+
                                 // ANLIK GÜNCELLEME: Haritadaki feature'ı hemen güncelle
                                 const newGeom = format.readGeometry(selectedRouteData.routeGeoJSON, {
                                   dataProjection: 'EPSG:4326',
@@ -1956,6 +2215,7 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
             })()}
           </div>
         )}
+
       </div>
     </div>
   );

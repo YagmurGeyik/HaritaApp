@@ -21,5 +21,17 @@ export const routeService = {
     },
     delete: async (id) => {
         await api.delete(`${API_URL}/${id}`);
+    },
+    simulate: async (id) => {
+        const response = await api.post(`${API_URL}/${id}/simulate`);
+        return response.data;
+    },
+    stopSimulation: async (id) => {
+        const response = await api.post(`${API_URL}/${id}/stop-simulation`);
+        return response.data;
+    },
+    togglePauseSimulation: async (id) => {
+        const response = await api.post(`${API_URL}/${id}/toggle-pause-simulation`);
+        return response.data;
     }
 };

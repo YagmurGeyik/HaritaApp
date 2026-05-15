@@ -4,7 +4,7 @@ import GeometryList from './components/GeometryList';
 import { geometryService } from './services/geometryService';
 import { routeService } from './services/routeService';
 import { stopService } from './services/stopService';
-import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon, Navigation, Layers } from 'lucide-react';
+import { MapPin, Share2, Pentagon, XCircle, Menu, Info, AlertTriangle, Edit2, LogOut, User as UserIcon, Navigation, Layers, Pause, Play, Square } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import './App.css';
@@ -73,6 +73,7 @@ function AppContent() {
   const [measureMode, setMeasureMode] = useState(null);
   const [routingMode, setRoutingMode] = useState(false);
   const [hiddenRoutes, setHiddenRoutes] = useState([]);
+  const [activeSimulations, setActiveSimulations] = useState([]);
 
   const toggleRouteVisibility = (routeId) => {
     setHiddenRoutes(prev =>
@@ -365,9 +366,11 @@ function AppContent() {
             notify={(t, m, tp, cb, dv, ccb) => showModal(t, m, tp, cb, dv, ccb)}
             hiddenRoutes={hiddenRoutes}
             toggleRouteVisibility={toggleRouteVisibility}
+            activeSimulations={activeSimulations}
+            setActiveSimulations={setActiveSimulations}
           />
 
-          {/* Katmanlar Floating Paneli */}
+          {/* Katmanlar Floating Paneli (Sol Alt) */}
           <div className="katmanlar-widget">
             {isLayerPanelOpen && (
               <div className="katmanlar-options">
@@ -417,7 +420,6 @@ function AppContent() {
                   <span>Uydu</span>
                 </button>
               </div>
-
             )}
             <button
               className={`katmanlar-toggle-btn ${isLayerPanelOpen ? 'open' : ''}`}
@@ -428,6 +430,75 @@ function AppContent() {
               <span>Katmanlar</span>
             </button>
           </div>
+
+          {/* Simülasyon Kontrolleri (Sağ Alt) */}
+          {activeSimulations.length > 0 && (
+            <div style={{
+              position: 'absolute',
+              bottom: '24px',
+              right: '24px',
+              zIndex: 3000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px'
+            }}>
+              {activeSimulations.map(sim => (
+                <div key={sim.id} style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  background: 'rgba(15, 23, 42, 0.95)', 
+                  backdropFilter: 'blur(20px)',
+                  borderRadius: '40px', 
+                  padding: '8px', 
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.5)', 
+                  border: '1px solid rgba(255,255,255,0.15)' 
+                }}>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await routeService.togglePauseSimulation(sim.id);
+                        setActiveSimulations(prev => prev.map(s => s.id === sim.id ? { ...s, isPaused: res.isPaused } : s));
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: sim.isPaused ? '#f59e0b' : '#3b82f6', color: 'white',
+                      border: 'none', width: '45px', height: '45px', borderRadius: '50%', cursor: 'pointer',
+                      marginRight: '8px', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}
+                    title={sim.isPaused ? "Devam Et" : "Duraklat"}
+                    onMouseOver={(e) => { e.currentTarget.style.transform = 'scale(1.15)'; e.currentTarget.style.boxShadow = '0 0 20px rgba(59, 130, 246, 0.4)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                  >
+                    {sim.isPaused ? <Play size={24} fill="currentColor" /> : <Pause size={24} fill="currentColor" />}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await routeService.stopSimulation(sim.id);
+                        setActiveSimulations(prev => prev.filter(sId => sId.id !== sim.id));
+                      } catch (e) {
+                        console.error(e);
+                      }
+                    }}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: '#ef4444', color: 'white',
+                      border: 'none', width: '45px', height: '45px', borderRadius: '50%', cursor: 'pointer',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}
+                    title="Simülasyonu Durdur"
+                    onMouseOver={(e) => { e.currentTarget.style.transform = 'scale(1.15)'; e.currentTarget.style.boxShadow = '0 0 20px rgba(239, 68, 68, 0.4)'; }}
+                    onMouseOut={(e) => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = 'none'; }}
+                  >
+                    <Square size={22} fill="currentColor" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </main>
       </div>
     </div>

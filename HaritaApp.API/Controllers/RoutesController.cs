@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using HaritaApp.API.Data;
 using HaritaApp.API.Models;
+using HaritaApp.API.Services;
 
 namespace HaritaApp.API.Controllers
 {
@@ -13,10 +14,12 @@ namespace HaritaApp.API.Controllers
     public class RoutesController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly SimulationService _simulationService;
 
-        public RoutesController(AppDbContext context)
+        public RoutesController(AppDbContext context, SimulationService simulationService)
         {
             _context = context;
+            _simulationService = simulationService;
         }
 
         private bool TryGetUserId(out int userId)
@@ -254,5 +257,53 @@ namespace HaritaApp.API.Controllers
 
         private bool RouteExists(int id) =>
             _context.Routes.Any(e => e.Id == id);
+
+        // POST: api/routes/{id}/simulate
+        [HttpPost("{id}/simulate")]
+        public async Task<IActionResult> StartSimulation(int id)
+        {
+            if (!TryGetUserId(out var userId)) return Unauthorized();
+
+            var route = await _context.Routes.FirstOrDefaultAsync(r => r.Id == id);
+            if (route == null) return NotFound();
+            if (route.UserId != userId) return Forbid();
+
+            _simulationService.StartSimulationForRoute(route);
+            
+            return Ok(new { message = "Simülasyon başlatıldı." });
+        }
+
+        // POST: api/routes/{id}/stop-simulation
+        [HttpPost("{id}/stop-simulation")]
+        public async Task<IActionResult> StopSimulation(int id)
+        {
+            if (!TryGetUserId(out var userId)) return Unauthorized();
+
+            var route = await _context.Routes.FirstOrDefaultAsync(r => r.Id == id);
+            if (route == null) return NotFound();
+            if (route.UserId != userId) return Forbid();
+
+            _simulationService.StopSimulationForRoute(id);
+            
+            return Ok(new { message = "Simülasyon durduruldu." });
+        }
+
+        // POST: api/routes/{id}/toggle-pause-simulation
+        [HttpPost("{id}/toggle-pause-simulation")]
+        public async Task<IActionResult> TogglePauseSimulation(int id)
+        {
+            if (!TryGetUserId(out var userId)) return Unauthorized();
+
+            var route = await _context.Routes.FirstOrDefaultAsync(r => r.Id == id);
+            if (route == null) return NotFound();
+            if (route.UserId != userId) return Forbid();
+
+            try {
+                bool isPaused = _simulationService.TogglePauseSimulationForRoute(id);
+                return Ok(new { isPaused, message = isPaused ? "Simülasyon duraklatıldı." : "Simülasyon devam ediyor." });
+            } catch {
+                return BadRequest(new { message = "Simülasyon aktif değil." });
+            }
+        }
     }
 }

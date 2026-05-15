@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trash2, Navigation, Search, Info, ChevronDown, ChevronUp, Map, Route as RouteIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff } from 'lucide-react';
+import { Trash2, Navigation, Search, Info, ChevronDown, ChevronUp, Map, Route as RouteIcon, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Play, Square } from 'lucide-react';
 import { geometryService } from '../services/geometryService';
 import { routeService } from '../services/routeService';
 import { getRouteColor } from '../utils/colorUtils';
@@ -91,6 +91,16 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
 
 
 
+  const handleSimulateRoute = async (id) => {
+    try {
+      await routeService.simulate(id);
+      notify("Başarılı", "Simülasyon başlatıldı.", "toast");
+    } catch (error) {
+      console.error("Simülasyon hatası:", error);
+      notify("Hata", "Simülasyon başlatılamadı.", "info");
+    }
+  };
+
   const renderItem = (item, type, onDelete) => {
     const isRoute = type === 'route';
     const routeColor = isRoute ? getRouteColor(item.id) : null;
@@ -117,7 +127,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
             <button
               className={`action-btn info-btn ${expandedId === item.id ? 'active' : ''}`}
               onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
-              title="Detay"
+              data-tooltip="Detay"
             >
               <Info size={15} />
             </button>
@@ -125,22 +135,23 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
               <button
                 className="action-btn"
                 onClick={() => toggleRouteVisibility && toggleRouteVisibility(item.id)}
-                title={hiddenRoutes.includes(item.id) ? "Göster" : "Gizle"}
+                data-tooltip={hiddenRoutes.includes(item.id) ? "Göster" : "Gizle"}
               >
                 {hiddenRoutes.includes(item.id) ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
             )}
+
             <button
               className="action-btn zoom-btn"
               onClick={() => onZoom(item)}
-              title="Haritada Göster"
+              data-tooltip="Haritada Göster"
             >
               <Navigation size={15} />
             </button>
             <button
               className="action-btn delete-btn-small"
               onClick={() => onDelete(item.id)}
-              title="Sil"
+              data-tooltip="Sil"
             >
               <Trash2 size={15} />
             </button>
@@ -221,7 +232,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageGeometries === 1} 
                         onClick={() => setCurrentPageGeometries(1)}
-                        title="İlk Sayfa"
+                        data-tooltip="İlk Sayfa"
                       >
                         <ChevronsLeft size={18} />
                       </button>
@@ -229,7 +240,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageGeometries === 1} 
                         onClick={() => setCurrentPageGeometries(prev => prev - 1)}
-                        title="Önceki"
+                        data-tooltip="Önceki"
                       >
                         <ChevronLeft size={18} />
                       </button>
@@ -238,7 +249,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageGeometries === totalPagesGeometries} 
                         onClick={() => setCurrentPageGeometries(prev => prev + 1)}
-                        title="Sonraki"
+                        data-tooltip="Sonraki"
                       >
                         <ChevronRight size={18} />
                       </button>
@@ -246,7 +257,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageGeometries === totalPagesGeometries} 
                         onClick={() => setCurrentPageGeometries(totalPagesGeometries)}
-                        title="Son Sayfa"
+                        data-tooltip="Son Sayfa"
                       >
                         <ChevronsRight size={18} />
                       </button>
@@ -293,7 +304,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageRoutes === 1} 
                         onClick={() => setCurrentPageRoutes(1)}
-                        title="İlk Sayfa"
+                        data-tooltip="İlk Sayfa"
                       >
                         <ChevronsLeft size={18} />
                       </button>
@@ -301,7 +312,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageRoutes === 1} 
                         onClick={() => setCurrentPageRoutes(prev => prev - 1)}
-                        title="Önceki"
+                        data-tooltip="Önceki"
                       >
                         <ChevronLeft size={18} />
                       </button>
@@ -310,7 +321,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageRoutes === totalPagesRoutes} 
                         onClick={() => setCurrentPageRoutes(prev => prev + 1)}
-                        title="Sonraki"
+                        data-tooltip="Sonraki"
                       >
                         <ChevronRight size={18} />
                       </button>
@@ -318,7 +329,7 @@ const GeometryList = ({ geometries, routes, stops, refreshData, refreshRoutes, r
                         className="pagination-btn"
                         disabled={currentPageRoutes === totalPagesRoutes} 
                         onClick={() => setCurrentPageRoutes(totalPagesRoutes)}
-                        title="Son Sayfa"
+                        data-tooltip="Son Sayfa"
                       >
                         <ChevronsRight size={18} />
                       </button>
