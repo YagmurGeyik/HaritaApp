@@ -602,6 +602,10 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
         car.startTime = now;
         car.endTime = now + 2000;
       }
+      
+      if (!animationFrameId) {
+        animationFrameId = requestAnimationFrame(animateCars);
+      }
     });
 
     connection.on("SimulationEnded", (routeId) => {
@@ -614,30 +618,36 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
       notify("Bilgi", "Varış noktasına ulaşıldı!", "toast");
     });
 
-    let animationFrameId;
+    let animationFrameId = null;
     const animateCars = () => {
       const now = Date.now();
       let needsRender = false;
+      const cars = Object.values(activeCarsRef.current);
+      
+      if (cars.length === 0) {
+        animationFrameId = null;
+        return;
+      }
 
-      Object.values(activeCarsRef.current).forEach(car => {
-        const routeFeature = vectorSourceRef.current?.getFeatureById(`route-${car.routeId}`);
-        if (!routeFeature) return;
+      cars.forEach(car => {
+        if (!car.routeGeom) {
+          const routeFeature = vectorSourceRef.current?.getFeatureById(`route-${car.routeId}`);
+          if (routeFeature) car.routeGeom = routeFeature.getGeometry();
+        }
 
-        const routeGeom = routeFeature.getGeometry();
+        if (!car.routeGeom) return;
 
         if (now <= car.endTime && car.startTime !== car.endTime) {
           const p = (now - car.startTime) / (car.endTime - car.startTime);
           const currentProgress = car.startProgress + (car.endProgress - car.startProgress) * p;
 
-          const currentCoord = routeGeom.getCoordinateAt(Math.min(1, currentProgress));
+          const currentCoord = car.routeGeom.getCoordinateAt(Math.min(1, currentProgress));
           car.feature.getGeometry().setCoordinates(currentCoord);
-
-          // needsRender = true; // Sadece araba hareketi için map.render() yeterli olur
 
           // Rotasyon hesaplama (Arabanın yönünü belirleme rotanın şekline göre)
           if (currentProgress < 1) {
-            const nextProgress = Math.min(1, currentProgress + 0.005);
-            const nextCoord = routeGeom.getCoordinateAt(nextProgress);
+            const nextProgress = Math.min(1, currentProgress + 0.01);
+            const nextCoord = car.routeGeom.getCoordinateAt(nextProgress);
             const dx = nextCoord[0] - currentCoord[0];
             const dy = nextCoord[1] - currentCoord[1];
             if (dx !== 0 || dy !== 0) {
@@ -645,13 +655,14 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
               const style = car.feature.getStyle();
               if (style && style.getImage()) {
                 style.getImage().setRotation(rotation);
+                car.feature.changed(); // Stil değişikliğini haritaya yansıt
               }
             }
           }
 
           needsRender = true;
         } else if (now > car.endTime) {
-          const finalCoord = routeGeom.getCoordinateAt(car.endProgress);
+          const finalCoord = car.routeGeom.getCoordinateAt(car.endProgress);
           car.feature.getGeometry().setCoordinates(finalCoord);
         }
       });
@@ -662,8 +673,6 @@ const MapComponent = ({ drawType, setDrawType, geometries, routes, refreshData, 
 
       animationFrameId = requestAnimationFrame(animateCars);
     };
-
-    animationFrameId = requestAnimationFrame(animateCars);
 
 
     initialMap.on('singleclick', (event) => {
